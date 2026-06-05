@@ -205,6 +205,125 @@
   window.spotlightAPI.onHidden(() => onSpotlightHidden());
   window.spotlightAPI.onChatChunk(({ chunk }) => appendStreamingChunk(chunk));
 
+  // ─── Whispr (Speech-to-Text) ───
+  const whisprBtn = document.getElementById('whispr-btn');
+  let whisprMediaRecorder = null;
+  let whisprChunks = [];
+  let whisprStream = null;
+
+  function getActiveInput() {
+    if (currentMode === 'thought') return thoughtInput;
+    if (currentMode === 'chat') return chatInput;
+    if (currentMode === 'search') return searchInput;
+    if (currentMode === 'notes') return notesArea;
+    return null;
+  }
+
+  async function startWhisprRecording() {
+    try {
+      whisprStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      whisprChunks = [];
+
+      // Use webm/opus which Groq Whisper API accepts
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+
+      whisprMediaRecorder = new MediaRecorder(whisprStream, { mimeType });
+      whisprMediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) whisprChunks.push(e.data);
+      };
+      whisprMediaRecorder.start(250); // Collect chunks every 250ms
+      whisprBtn?.classList.add('recording');
+    } catch (err) {
+      console.error('Whispr mic access failed:', err);
+      whisprBtn?.classList.remove('recording');
+    }
+  }
+
+  async function stopWhisprRecording() {
+    if (!whisprMediaRecorder || whisprMediaRecorder.state === 'inactive') {
+      whisprBtn?.classList.remove('recording');
+      return;
+    }
+
+    return new Promise((resolve) => {
+      whisprMediaRecorder.onstop = async () => {
+        whisprBtn?.classList.remove('recording');
+
+        // Stop mic stream
+        if (whisprStream) {
+          whisprStream.getTracks().forEach((t) => t.stop());
+          whisprStream = null;
+        }
+
+        if (whisprChunks.length === 0) {
+          resolve();
+          return;
+        }
+
+        const blob = new Blob(whisprChunks, { type: 'audio/webm' });
+        whisprChunks = [];
+
+        // Send audio to main process for transcription
+        // Main.js handles routing the result to the correct target
+        const arrayBuffer = await blob.arrayBuffer();
+        const result = await window.spotlightAPI.whisprTranscribe(arrayBuffer);
+
+        if (result?.error) {
+          console.error('Whispr error:', result.error);
+        }
+
+        resolve();
+      };
+
+      whisprMediaRecorder.stop();
+    });
+  }
+
+  function insertTranscription(text) {
+    const input = getActiveInput();
+    if (!input) return;
+
+    // Insert at cursor position or append
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const before = input.value.substring(0, start);
+    const after = input.value.substring(end);
+    const spacer = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
+    input.value = before + spacer + text + after;
+    input.focus();
+
+    // Move cursor to end of inserted text
+    const newPos = start + spacer.length + text.length;
+    input.selectionStart = newPos;
+    input.selectionEnd = newPos;
+
+    // Trigger input event so UI updates (e.g. thought type detection)
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Listen for toggle from main process (Alt+` shortcut)
+  window.spotlightAPI.onWhisprToggle(async (recording) => {
+    if (recording) {
+      await startWhisprRecording();
+    } else {
+      await stopWhisprRecording();
+    }
+  });
+
+  // Listen for transcription results routed by main.js
+  window.spotlightAPI.onWhisprResult((result) => {
+    if (result?.text) {
+      insertTranscription(result.text);
+    }
+  });
+
+  // Button click in spotlight
+  whisprBtn?.addEventListener('click', () => {
+    window.spotlightAPI.whisprToggleFromRenderer();
+  });
+
   // Preload workflows while window is hidden
   setTimeout(loadBackgroundData, 0);
 

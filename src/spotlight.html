@@ -76,6 +76,51 @@
     .model-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
     .model-pill .dot.offline { background: #ef4444; }
     .model-pill svg { width: 10px; height: 10px; color: var(--text-muted); }
+    .topbar-right { display: flex; align-items: center; gap: 6px; }
+
+    /* Whispr button */
+    .whispr-btn {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+    .whispr-btn:hover {
+      border-color: #10b981;
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .whispr-btn.recording {
+      border-color: #10b981;
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+    }
+    .whispr-mic { width: 13px; height: 13px; }
+    .whispr-dot {
+      display: none;
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ef4444;
+      animation: whisprPulse 1s ease-in-out infinite;
+    }
+    .whispr-btn.recording .whispr-dot { display: block; }
+    @keyframes whisprPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
 
     /* Tabs */
     .tabs {
@@ -943,10 +988,16 @@
     <div class="spotlight-shell">
       <div class="topbar">
         <span class="brand">MindSpace</span>
-        <div class="model-pill" id="model-pill">
-          <span class="dot" id="api-dot"></span>
-          <span id="model-label">Groq</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        <div class="topbar-right">
+          <button type="button" class="whispr-btn" id="whispr-btn" title="Whispr — Speech to Text (Alt+`)">
+            <svg class="whispr-mic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            <span class="whispr-dot" id="whispr-dot"></span>
+          </button>
+          <div class="model-pill" id="model-pill">
+            <span class="dot" id="api-dot"></span>
+            <span id="model-label">Groq</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
         </div>
       </div>
 

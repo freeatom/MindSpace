@@ -424,5 +424,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onCalendarNotification: (callback) => ipcRenderer.on('calendar-notification', (e, data) => callback(data)),
   onCalendarOpenEvent: (callback) => ipcRenderer.on('calendar-open-event', (e, data) => callback(data)),
   onCalendarOpenEventModal: (callback) => ipcRenderer.on('calendar-open-event-modal', (e, data) => callback(data)),
+
+  // Whispr (speech-to-text)
+  onWhisprToggle: (callback) => ipcRenderer.on('whispr-toggle', (e, recording) => callback(recording)),
+  whisprTranscribe: (audioBuffer) => ipcRenderer.invoke('whispr-transcribe', audioBuffer),
+  onWhisprResult: (callback) => ipcRenderer.on('whispr-result', (e, result) => callback(result)),
+  whisprToggleFromRenderer: () => ipcRenderer.send('whispr-toggle-from-renderer'),
 });
 

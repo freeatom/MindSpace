@@ -37,4 +37,10 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   saveChatSession: (session) => ipcRenderer.invoke('spotlight-chat-save', session),
   getChatSessions: () => ipcRenderer.invoke('spotlight-chat-get-all'),
   deleteChatSession: (id) => ipcRenderer.invoke('spotlight-chat-delete', id),
+
+  // Whispr (speech-to-text)
+  onWhisprToggle: (callback) => ipcRenderer.on('whispr-toggle', (e, recording) => callback(recording)),
+  whisprTranscribe: (audioBuffer) => ipcRenderer.invoke('whispr-transcribe', audioBuffer),
+  onWhisprResult: (callback) => ipcRenderer.on('whispr-result', (e, result) => callback(result)),
+  whisprToggleFromRenderer: () => ipcRenderer.send('whispr-toggle-from-renderer'),
 });

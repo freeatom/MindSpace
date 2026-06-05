@@ -11,6 +11,7 @@ const notesStore = require('./services/notes-store');
 const calendarStore = require('./services/calendar-store');
 const CalendarScheduler = require('./services/calendar-scheduler');
 const calendarParser = require('./services/calendar-parser');
+const whispr = require('./services/whispr');
 
 let mainWindow;
 let calendarScheduler = null;
@@ -19,6 +20,10 @@ let spotlightPanelOpen = false;
 let spotlightReady = false;
 let cachedSpotlightWorkflows = null;
 let workflowsCacheMtime = 0;
+
+// ─── Whispr (speech-to-text) state ───
+let whisprPillWindow = null;
+let whisprRecording = false;
 
 function getNotesPath() {
   return path.join(app.getPath('userData'), 'mindspace-data', 'spotlight-notes.txt');
@@ -185,16 +190,26 @@ app.whenReady().then(async () => {
     toggleSpotlight();
   });
 
+  // Register Whispr shortcut (Alt+`)
+  globalShortcut.register('Alt+`', () => {
+    toggleWhispr();
+  });
+
   // Pre-warm spotlight so Alt+Space opens instantly (hidden, already loaded)
   prewarmSpotlight();
 
   // Start clipboard polling
   startClipboardPolling();
+
+  // Start push-to-talk monitor (Insert key)
+  startPushToTalkMonitor();
 });
 
 app.on('will-quit', () => {
+  app.isQuitting = true;
   globalShortcut.unregisterAll();
   stopClipboardPolling();
+  stopPushToTalkMonitor();
   if (calendarScheduler) calendarScheduler.stop();
 });
 
@@ -922,3 +937,240 @@ ipcMain.on('auto-paste-full', (event, text, delayMs) => {
     if (err) console.error('Auto-paste-full failed:', err.message);
   });
 });
+
+// ─── Whispr — Speech-to-Text ───
+
+function createWhisprPill() {
+  if (whisprPillWindow && !whisprPillWindow.isDestroyed()) return whisprPillWindow;
+
+  const display = screen.getPrimaryDisplay();
+  const pillWidth = 220;
+  const pillHeight = 48;
+  const x = Math.round(display.workArea.x + (display.workArea.width - pillWidth) / 2);
+  const y = display.workArea.y + display.workArea.height - pillHeight - 20; // Bottom offset
+
+  whisprPillWindow = new BrowserWindow({
+    width: pillWidth,
+    height: pillHeight,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  whisprPillWindow.loadFile(path.join(__dirname, 'src', 'whispr-pill.html'));
+  whisprPillWindow.on('closed', () => { whisprPillWindow = null; });
+
+  return whisprPillWindow;
+}
+
+function showWhisprPill(state) {
+  const pill = createWhisprPill();
+  
+  const applyState = () => {
+    if (!pill.isVisible()) pill.show();
+    pill.webContents.send('whispr-pill-state', state);
+  };
+
+  if (pill.webContents.isLoading()) {
+    pill.webContents.once('did-finish-load', applyState);
+  } else {
+    applyState();
+  }
+}
+
+function hideWhisprPill() {
+  if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
+    whisprPillWindow.webContents.send('whispr-pill-state', 'done');
+    setTimeout(() => {
+      if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
+        whisprPillWindow.hide();
+      }
+    }, 300);
+  }
+}
+
+function toggleWhispr() {
+  whisprRecording = !whisprRecording;
+
+  // Notify all renderer windows
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('whispr-toggle', whisprRecording);
+  }
+  if (spotlightWindow && !spotlightWindow.isDestroyed()) {
+    spotlightWindow.webContents.send('whispr-toggle', whisprRecording);
+  }
+
+  if (whisprRecording) {
+    showWhisprPill('listening');
+  } else {
+    // Pill will transition to 'transcribing' when audio is received
+  }
+}
+
+// Receive recorded audio from renderer, call Groq API, route result smartly
+ipcMain.handle('whispr-transcribe', async (event, audioArrayBuffer) => {
+  const aiConfig = getAiConfigFromStore();
+  if (!aiConfig.hasKey) {
+    hideWhisprPill();
+    whisprRecording = false;
+    return { error: 'No API key configured. Go to Settings → AI Assistant.' };
+  }
+
+  showWhisprPill('transcribing');
+
+  try {
+    const audioBuffer = Buffer.from(audioArrayBuffer);
+    const result = await whispr.transcribe(audioBuffer, aiConfig.apiKey);
+
+    // Smart routing: send result to the focused window, or paste externally
+    const spotlightVisible = spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible();
+    const spotlightFocused = spotlightVisible && spotlightWindow.isFocused();
+    const mainFocused = mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
+
+    if (spotlightFocused) {
+      spotlightWindow.webContents.send('whispr-result', result);
+    } else if (mainFocused) {
+      mainWindow.webContents.send('whispr-result', result);
+    } else {
+      // No MindSpace window focused — paste into external app
+      pasteToExternalApp(result.text);
+    }
+
+    hideWhisprPill();
+    return result;
+  } catch (err) {
+    console.error('Whispr transcription error:', err.message);
+    showWhisprPill('error');
+    setTimeout(() => hideWhisprPill(), 2000);
+    return { error: err.message };
+  } finally {
+    whisprRecording = false;
+  }
+});
+
+// Paste transcribed text into external apps via clipboard + Ctrl+V
+function pasteToExternalApp(text) {
+  if (!text) return;
+
+  // Save previous clipboard state
+  const prevText = clipboard.readText();
+  const prevHtml = clipboard.readHTML();
+  const prevImage = clipboard.readImage();
+  const prevRtf = clipboard.readRTF();
+
+  clipboard.writeText(text);
+
+  // Small delay to let the clipboard settle, then simulate Ctrl+V
+  setTimeout(() => {
+    const psScript = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '[System.Windows.Forms.SendKeys]::SendWait("^v")',
+    ].join('\n');
+    const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+    execFile('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], (err) => {
+      if (err) console.error('Whispr external paste failed:', err.message);
+
+      // Wait a moment for OS to process the paste, then restore previous clipboard
+      setTimeout(() => {
+        if (!prevImage.isEmpty()) {
+          clipboard.writeImage(prevImage);
+        } else if (prevHtml) {
+          clipboard.writeHTML(prevHtml);
+        } else if (prevRtf) {
+          clipboard.writeRTF(prevRtf);
+        } else if (prevText) {
+          clipboard.writeText(prevText);
+        } else {
+          clipboard.clear();
+        }
+      }, 300);
+    });
+  }, 150);
+}
+
+// Allow spotlight button click to toggle too
+ipcMain.on('whispr-toggle-from-renderer', () => {
+  toggleWhispr();
+});
+
+// ─── Push-to-Talk (Insert key) ───
+let pttProcess = null;
+let pttActive = false;
+
+function startPushToTalkMonitor() {
+  const psScript = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class KeyStateMonitor {
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+}
+"@
+$$VK_INSERT = 0x2D
+$$wasDown = $$false
+while ($$true) {
+    $$down = ([KeyStateMonitor]::GetAsyncKeyState($$VK_INSERT) -band 0x8000) -ne 0
+    if ($$down -and -not $$wasDown) {
+        [Console]::Out.WriteLine("DOWN")
+        [Console]::Out.Flush()
+    }
+    if (-not $$down -and $$wasDown) {
+        [Console]::Out.WriteLine("UP")
+        [Console]::Out.Flush()
+    }
+    $$wasDown = $$down
+    Start-Sleep -Milliseconds 50
+}
+`.replace(/\$\$/g, '$');
+
+  const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+  pttProcess = execFile('powershell', [
+    '-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded
+  ]);
+
+  let buffer = '';
+  pttProcess.stdout.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === 'DOWN' && !pttActive && !whisprRecording) {
+        pttActive = true;
+        toggleWhispr();
+      } else if (trimmed === 'UP' && pttActive) {
+        pttActive = false;
+        if (whisprRecording) {
+          toggleWhispr();
+        }
+      }
+    }
+  });
+
+  pttProcess.stderr.on('data', (d) => console.error('PTT monitor:', d.toString()));
+  pttProcess.on('exit', (code) => {
+    pttProcess = null;
+    // Auto-restart unless app is quitting
+    if (!app.isQuitting) {
+      setTimeout(startPushToTalkMonitor, 2000);
+    }
+  });
+}
+
+function stopPushToTalkMonitor() {
+  if (pttProcess) {
+    pttProcess.kill();
+    pttProcess = null;
+  }
+}

@@ -34,6 +34,33 @@ const App = {
     this.bindNavigation();
     this.bindKeyboardShortcuts();
     this.bindSpotlight();
+    this.bindWhispr();
+  },
+
+  bindWhispr() {
+    // Insert transcribed text into whatever is focused in the main window
+    window.electronAPI.onWhisprResult((result) => {
+      if (!result?.text) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        const start = el.selectionStart ?? el.value?.length ?? 0;
+        const end = el.selectionEnd ?? start;
+        if (el.isContentEditable) {
+          document.execCommand('insertText', false, result.text);
+        } else {
+          const before = el.value.substring(0, start);
+          const after = el.value.substring(end);
+          const spacer = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
+          el.value = before + spacer + result.text + after;
+          const newPos = start + spacer.length + result.text.length;
+          el.selectionStart = newPos;
+          el.selectionEnd = newPos;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } else {
+        SmartActions.toast(`Whispr: "${result.text.substring(0, 50)}…"`);
+      }
+    });
   },
 
   bindSpotlight() {
