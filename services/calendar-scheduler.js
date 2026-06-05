@@ -97,9 +97,17 @@ class CalendarScheduler {
   showNativeNotification(event, type) {
     if (!Notification.isSupported()) return;
     const label = type === 'start' ? 'Starting now' : 'Reminder';
+    const isThought = event.source_type === 'thought';
+    const title = isThought
+      ? `${label}: 💭 ${event.event_title}`
+      : `${label}: ${event.event_title}`;
+    const bodyLines = [`${event.event_date} at ${event.event_time}`];
+    if (isThought) bodyLines.push('📌 From your captured thoughts');
+    if (event.event_description) bodyLines.push(event.event_description.slice(0, 120));
     const n = new Notification({
-      title: `${label}: ${event.event_title}`,
-      body: `${event.event_date} at ${event.event_time}${event.event_description ? `\n${event.event_description}` : ''}`,
+      title,
+      body: bodyLines.join('\n'),
+      urgency: event.priority === 'high' ? 'critical' : 'normal',
     });
     n.on('click', () => {
       const win = this.getMainWindow();

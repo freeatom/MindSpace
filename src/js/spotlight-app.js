@@ -1,5 +1,5 @@
 /**
- * MindSpace Spotlight — compact thought capture, AI search, embedded browser
+ * MindSpace Spotlight — full thought capture, AI search, embedded browser
  */
 (function () {
   const MODES = ['thought', 'chat', 'search', 'notes'];
@@ -7,7 +7,6 @@
   const thoughtInput = document.getElementById('thought-input');
   const thoughtGhost = document.getElementById('thought-ghost');
   const thoughtType = document.getElementById('thought-type');
-  const thoughtArea = document.getElementById('thought-area');
   const fileResults = document.getElementById('file-results');
   const modeTabs = document.querySelectorAll('.tab');
   const panels = document.querySelectorAll('.panel');
@@ -29,7 +28,6 @@
   const browserSection = document.getElementById('browser-section');
   const searchWebview = document.getElementById('search-webview');
   const browserUrl = document.getElementById('browser-url');
-  const thoughtExpandBtn = document.getElementById('thought-expand');
   const notesArea = document.getElementById('notes-textarea');
   const notesNameInput = document.getElementById('notes-name-input');
   const notesSaveBtn = document.getElementById('notes-save-btn');
@@ -37,6 +35,15 @@
 
   const modelLabel = document.getElementById('model-label');
   const apiDot = document.getElementById('api-dot');
+
+  // Thought form controls
+  const thoughtSaveBtn = document.getElementById('thought-save');
+  const thoughtClearBtn = document.getElementById('thought-clear');
+  const thoughtStatus = document.getElementById('thought-status');
+  const slDateRow = document.getElementById('sl-date-row');
+  const slExpiresInput = document.getElementById('sl-expires-input');
+  const slCalendarHint = document.getElementById('sl-calendar-hint');
+  const slTagList = document.getElementById('sl-tag-list');
 
   let currentMode = 'thought';
   let pastedImage = null;
@@ -47,7 +54,6 @@
   let searchTimeout = null;
   let notesSaveTimeout = null;
   let recentSearches = [];
-  let thoughtNotesExpanded = false;
   let currentBrowserUrl = '';
   let browserLayoutMode = 'stacked';
   let panelRatio = 0.30;
@@ -60,7 +66,30 @@
   let aiConfig = { hasKey: false, supportsStream: true, model: 'Groq' };
   let screenLayout = { width: 380, maxHeight: 720 };
 
+  // Chat session management
+  let currentSessionId = null;
+  let sessionCreatedAt = null;
+  const chatSessionTitle = document.getElementById('chat-session-title');
+  const chatHistoryPanel = document.getElementById('chat-history-panel');
+  const chatHistoryList = document.getElementById('chat-history-list');
+  const chatNewBtn = document.getElementById('chat-new-btn');
+  const chatHistoryBtn = document.getElementById('chat-history-btn');
+  const chatHistoryClose = document.getElementById('chat-history-close');
+
+  // Thought form state
+  let selectedPriority = 'medium';
+  let selectedPersistence = 'persistent';
+  let selectedTags = [];
+  let allTags = [];
+  let tagsLoaded = false;
+
   const CHAT_SYSTEM = `You are MindSpace, a helpful AI assistant. Be concise and clear.`;
+
+  // Generate a unique session ID — works in non-secure contexts (file:// protocol)
+  function generateSessionId() {
+    const hex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+    return `${hex()}${hex()}-${hex()}-${hex()}-${hex()}-${hex()}${hex()}${hex()}`;
+  }
 
   const CALENDAR_TRIGGERS = [
     /^cal$/i, /^calendar$/i,
@@ -95,11 +124,64 @@
     });
   }
 
+  async function loadTagsLazy() {
+    if (tagsLoaded) return;
+    tagsLoaded = true;
+    try {
+      allTags = await window.spotlightAPI.getTags();
+      renderTagSelector();
+    } catch (e) {
+      allTags = [];
+      renderTagSelector();
+    }
+  }
+
+  function renderTagSelector() {
+    if (!slTagList) return;
+    if (!allTags.length) {
+      slTagList.innerHTML = '<span style="font-size:10px;color:var(--text-muted)">No tags yet</span>';
+      return;
+    }
+    slTagList.innerHTML = allTags.map((tag) => {
+      const isSelected = selectedTags.includes(tag.name);
+      const bgColor = tag.color?.bg || 'var(--bg-surface)';
+      const textColor = tag.color?.text || 'var(--text-sub)';
+      return `<button type="button" class="sl-tag-pill ${isSelected ? 'selected' : ''}"
+        data-name="${escapeAttr(tag.name)}"
+        style="${isSelected ? '' : `background:${bgColor};color:${textColor}`}"
+        >${escapeHtml(tag.name)}</button>`;
+    }).join('');
+
+    slTagList.querySelectorAll('.sl-tag-pill').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        const name = pill.dataset.name;
+        if (selectedTags.includes(name)) {
+          selectedTags = selectedTags.filter((t) => t !== name);
+        } else {
+          selectedTags.push(name);
+        }
+        renderTagSelector();
+      });
+    });
+  }
+
+  const spotlightShell = document.querySelector('.spotlight-shell');
+
   function onSpotlightShown() {
     loadBackgroundData();
+    // Trigger the entrance transition: shell starts at opacity:0/translateX(8px)
+    // and transitions to visible state
+    if (spotlightShell) {
+      // Force a reflow so the transition always fires (even on re-show)
+      spotlightShell.classList.remove('visible');
+      void spotlightShell.offsetWidth;
+      spotlightShell.classList.add('visible');
+    }
+    // Always update window size for the current mode
+    updateWindowSize();
     if (currentMode === 'thought') {
+      loadTagsLazy();
       thoughtInput?.focus();
-      updateWindowSize();
     } else if (currentMode === 'chat') chatInput?.focus();
     else if (currentMode === 'search') searchInput?.focus();
     else if (currentMode === 'notes') {
@@ -108,13 +190,19 @@
     }
   }
 
+  function onSpotlightHidden() {
+    // Remove visible class so next show triggers the entrance transition
+    if (spotlightShell) spotlightShell.classList.remove('visible');
+    closeBrowser();
+  }
+
   updateWindowSize();
   window.spotlightAPI.getLayout().then((layout) => {
     screenLayout = layout;
     updateWindowSize();
   });
   window.spotlightAPI.onShown(() => onSpotlightShown());
-  window.spotlightAPI.onHidden(() => closeBrowser());
+  window.spotlightAPI.onHidden(() => onSpotlightHidden());
   window.spotlightAPI.onChatChunk(({ chunk }) => appendStreamingChunk(chunk));
 
   // Preload workflows while window is hidden
@@ -122,26 +210,158 @@
 
   modeTabs.forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.mode)));
 
-  document.getElementById('thought-clear')?.addEventListener('click', () => {
+  // ─── Thought form controls ───
+  thoughtClearBtn?.addEventListener('click', () => {
     thoughtInput.value = '';
-    thoughtArea.value = '';
-    thoughtGhost.textContent = '';
-    thoughtGhost.classList.remove('visible');
     pastedImage = null;
     thoughtType.textContent = 'Thought';
-    thoughtNotesExpanded = false;
-    thoughtArea?.classList.remove('visible');
-    if (thoughtExpandBtn) thoughtExpandBtn.textContent = '+ Add notes (optional)';
-    updateWindowSize();
+    selectedPriority = 'medium';
+    selectedPersistence = 'persistent';
+    selectedTags = [];
+
+    // Reset priority buttons
+    document.querySelectorAll('.sl-priority-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelector('.sl-priority-btn[data-priority="medium"]')?.classList.add('active');
+
+    // Reset persistence buttons
+    document.querySelectorAll('.sl-persist-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelector('.sl-persist-btn[data-persist="persistent"]')?.classList.add('active');
+    slDateRow.style.display = 'none';
+    slExpiresInput.value = '';
+    slCalendarHint?.classList.remove('visible');
+
+    renderTagSelector();
+    if (thoughtStatus) thoughtStatus.textContent = '';
   });
 
-  thoughtExpandBtn?.addEventListener('click', () => {
-    thoughtNotesExpanded = !thoughtNotesExpanded;
-    thoughtArea?.classList.toggle('visible', thoughtNotesExpanded);
-    thoughtExpandBtn.textContent = thoughtNotesExpanded ? '− Hide notes' : '+ Add notes (optional)';
-    if (thoughtNotesExpanded) thoughtArea?.focus();
-    updateWindowSize();
+  // Priority buttons
+  document.querySelectorAll('.sl-priority-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sl-priority-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedPriority = btn.dataset.priority;
+    });
   });
+
+  // Persistence buttons
+  document.querySelectorAll('.sl-persist-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sl-persist-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedPersistence = btn.dataset.persist;
+      slDateRow.style.display = btn.dataset.persist === 'until_date' ? 'flex' : 'none';
+      // Show calendar hint for time-bound thoughts
+      const showCal = btn.dataset.persist === 'today' || btn.dataset.persist === 'until_date';
+      slCalendarHint?.classList.toggle('visible', showCal);
+    });
+  });
+
+  // Save thought button
+  thoughtSaveBtn?.addEventListener('click', () => saveThought());
+
+  // Ctrl+Enter to save
+  thoughtInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      saveThought();
+      return;
+    }
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      const idx = MODES.indexOf(currentMode);
+      setMode(MODES[(idx + 1) % MODES.length]);
+      return;
+    }
+    if (e.ctrlKey && e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
+      setMode(MODES[parseInt(e.key, 10) - 1]);
+      return;
+    }
+    if (e.key === 'Escape') {
+      window.spotlightAPI.close();
+      return;
+    }
+  });
+
+  thoughtInput?.addEventListener('input', handleThoughtInput);
+
+  async function saveThought() {
+    const val = thoughtInput.value.trim();
+    if (!val && !pastedImage) {
+      if (thoughtStatus) thoughtStatus.textContent = 'Enter a thought first';
+      thoughtInput?.focus();
+      return;
+    }
+
+    thoughtSaveBtn.disabled = true;
+    if (thoughtStatus) thoughtStatus.textContent = 'Saving…';
+
+    try {
+      // Check for calendar-like commands
+      if (isCalendarLike(val)) {
+        const prefill = await window.spotlightAPI.parseCalendarCommand(val);
+        window.spotlightAPI.openCalendar(prefill || {});
+        window.spotlightAPI.close();
+        return;
+      }
+
+      // Check for URL — archive it
+      const isUrl = /^https?:\/\//i.test(val);
+      if (pastedImage || isUrl) {
+        window.spotlightAPI.saveArchive({
+          title: val || 'Quick Capture',
+          content: val,
+          images: pastedImage ? [pastedImage] : [],
+          tags: selectedTags.length ? selectedTags : ['spotlight'],
+        });
+        window.spotlightAPI.close();
+        return;
+      }
+
+      // Build expiry
+      let expiresAt = null;
+      if (selectedPersistence === 'until_date') {
+        const dateVal = slExpiresInput.value;
+        if (dateVal) {
+          expiresAt = new Date(dateVal).toISOString();
+        }
+      }
+
+      // Save thought
+      const thoughtData = {
+        content: val,
+        priority: selectedPriority,
+        persistence: selectedPersistence,
+        expiresAt,
+        tags: selectedTags.length ? selectedTags : ['spotlight'],
+      };
+
+      // Create calendar event for time-bound thoughts
+      if (selectedPersistence === 'today' || selectedPersistence === 'until_date') {
+        try {
+          const result = await window.spotlightAPI.createCalendarFromThought({
+            content: val,
+            priority: selectedPriority,
+            persistence: selectedPersistence,
+            expiresAt,
+          });
+          if (result?.calendarEventId) {
+            thoughtData.calendarEventId = result.calendarEventId;
+          }
+        } catch (calErr) {
+          console.error('Calendar linking failed:', calErr);
+        }
+      }
+
+      window.spotlightAPI.saveThought(thoughtData);
+      window.spotlightAPI.close();
+    } catch (err) {
+      if (thoughtStatus) thoughtStatus.textContent = 'Error: ' + err.message;
+      console.error(err);
+    } finally {
+      thoughtSaveBtn.disabled = false;
+    }
+  }
 
   notesArea?.addEventListener('input', () => {
     clearTimeout(notesSaveTimeout);
@@ -206,9 +426,6 @@
     if (e.key === 'Enter') runWebSearch();
   });
 
-  thoughtInput.addEventListener('input', handleThoughtInput);
-  thoughtInput.addEventListener('keydown', handleThoughtKeydown);
-
   document.addEventListener('paste', (e) => {
     if (currentMode !== 'thought') return;
     const items = e.clipboardData?.items;
@@ -220,7 +437,7 @@
         reader.onload = () => {
           pastedImage = reader.result;
           thoughtType.textContent = 'Image';
-          thoughtInput.placeholder = 'Image captured — add a note or press Enter';
+          thoughtInput.placeholder = 'Image captured — add a note or press Ctrl+Enter';
         };
         reader.readAsDataURL(item.getAsFile());
         return;
@@ -237,11 +454,14 @@
     modeTabs.forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
     panels.forEach((p) => p.classList.toggle('active', p.dataset.mode === mode));
 
-    const panelOpen = mode !== 'thought';
-    window.spotlightAPI.setPanelOpen(panelOpen);
+    // All modes are now full-height panels
+    window.spotlightAPI.setPanelOpen(true);
     updateWindowSize();
 
-    if (mode === 'thought') thoughtInput.focus();
+    if (mode === 'thought') {
+      loadTagsLazy();
+      thoughtInput.focus();
+    }
     else if (mode === 'chat') chatInput.focus();
     else if (mode === 'search') {
       searchInput.focus();
@@ -258,17 +478,8 @@
   function updateWindowSize() {
     const width = screenLayout.width || 380;
     const maxH = screenLayout.maxHeight || 720;
-    let height;
-
-    if (currentMode !== 'thought') {
-      height = maxH;
-    } else {
-      let compactH = 118;
-      if (thoughtNotesExpanded) compactH += 68;
-      if (fileResults.classList.contains('visible')) compactH += 140;
-      height = Math.min(compactH, maxH * 0.4);
-    }
-
+    // All modes are now full height
+    const height = maxH;
     window.spotlightAPI.resize({ width, height });
   }
 
@@ -284,14 +495,11 @@
     const val = thoughtInput.value;
     const trimVal = val.trim();
     currentWorkflowMatch = null;
-    thoughtGhost.textContent = '';
-    thoughtGhost.classList.remove('visible');
 
     if (!val) {
       thoughtType.textContent = 'Thought';
       fileResults.classList.remove('visible');
       fileResults.innerHTML = '';
-      updateWindowSize();
       return;
     }
 
@@ -301,12 +509,10 @@
       clearTimeout(searchTimeout);
       if (!query) {
         fileResults.classList.remove('visible');
-        updateWindowSize();
         return;
       }
       fileResults.innerHTML = '<div class="panel-status">Searching…</div>';
       fileResults.classList.add('visible');
-      updateWindowSize();
       searchTimeout = setTimeout(async () => {
         localFileResults = await window.spotlightAPI.searchLocalFiles(query);
         selectedFileIndex = -1;
@@ -316,14 +522,11 @@
     }
 
     fileResults.classList.remove('visible');
-    updateWindowSize();
 
     if (trimVal.length > 0) {
       const match = loadedWorkflows.find((w) => w.name.toLowerCase().startsWith(trimVal.toLowerCase()));
       if (match) {
         currentWorkflowMatch = match;
-        thoughtGhost.textContent = val + match.name.substring(val.length);
-        thoughtGhost.classList.add('visible');
         thoughtType.textContent = 'Workflow';
         return;
       }
@@ -338,7 +541,6 @@
   function renderFileResults() {
     if (!localFileResults?.length) {
       fileResults.innerHTML = '<div class="panel-status">No files found.</div>';
-      updateWindowSize();
       return;
     }
     fileResults.innerHTML = localFileResults.map((f, i) => `
@@ -353,88 +555,6 @@
         window.spotlightAPI.close();
       });
     });
-    updateWindowSize();
-  }
-
-  function handleThoughtKeydown(e) {
-    if (e.key === 'Tab' && !e.shiftKey) {
-      e.preventDefault();
-      const idx = MODES.indexOf(currentMode);
-      setMode(MODES[(idx + 1) % MODES.length]);
-      return;
-    }
-    if (e.ctrlKey && e.key >= '1' && e.key <= '4') {
-      e.preventDefault();
-      setMode(MODES[parseInt(e.key, 10) - 1]);
-      return;
-    }
-    if (e.key === 'Escape') {
-      window.spotlightAPI.close();
-      return;
-    }
-
-    if (fileResults.classList.contains('visible') && localFileResults.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        selectedFileIndex = Math.min(selectedFileIndex + 1, localFileResults.length - 1);
-        renderFileResults();
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        selectedFileIndex = Math.max(selectedFileIndex - 1, -1);
-        renderFileResults();
-        return;
-      }
-    }
-
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const val = thoughtInput.value.trim();
-
-    if (isCalendarLike(val)) {
-      window.spotlightAPI.parseCalendarCommand(val).then((prefill) => {
-        window.spotlightAPI.openCalendar(prefill || {});
-      });
-      return;
-    }
-
-    if (fileResults.classList.contains('visible') && selectedFileIndex >= 0) {
-      window.spotlightAPI.openFile(localFileResults[selectedFileIndex].Path);
-      window.spotlightAPI.close();
-      return;
-    }
-    if (currentWorkflowMatch) {
-      window.spotlightAPI.executeWorkflow(currentWorkflowMatch.name);
-      window.spotlightAPI.close();
-      return;
-    }
-    if (!val && !pastedImage) return;
-
-    if (val.startsWith('/')) {
-      window.spotlightAPI.executeWorkflow(val.substring(1).trim());
-    } else {
-      const isUrl = /^https?:\/\//i.test(val);
-      if (pastedImage || isUrl) {
-        window.spotlightAPI.saveArchive({
-          title: val || 'Quick Capture',
-          content: val,
-          images: pastedImage ? [pastedImage] : [],
-          tags: ['spotlight'],
-        });
-      } else {
-        const content = thoughtArea.value.trim()
-          ? thoughtArea.value.trim() + '\n\n' + val
-          : val;
-        window.spotlightAPI.saveThought({
-          content,
-          priority: 'medium',
-          persistence: 'persistent',
-          tags: ['spotlight'],
-        });
-      }
-    }
-    window.spotlightAPI.close();
   }
 
   // ─── AI Chat ───
@@ -458,12 +578,24 @@
       return;
     }
 
+    // Create a new session if none exists
+    if (!currentSessionId) {
+      currentSessionId = generateSessionId();
+      sessionCreatedAt = new Date().toISOString();
+    }
+
     chatHistory.push({ role: 'user', content: text });
     appendUserMessage(text);
     chatInput.value = '';
     chatChips.classList.add('hidden');
     chatStreaming = true;
     chatSend.disabled = true;
+
+    // Update title from first user message
+    if (chatHistory.filter((m) => m.role === 'user').length === 1) {
+      const title = text.length > 40 ? text.substring(0, 40) + '…' : text;
+      if (chatSessionTitle) chatSessionTitle.textContent = title;
+    }
 
     const wrap = document.createElement('div');
     wrap.className = 'msg-ai-wrap';
@@ -512,6 +644,9 @@
         chatInput.value = text;
         await sendChatMessage();
       });
+
+      // Auto-save session after each successful exchange
+      autoSaveSession();
     } catch (err) {
       wrap.remove();
       chatHistory.pop();
@@ -523,6 +658,136 @@
       scrollChat();
     }
   }
+
+  // ─── Chat session management ───
+  function autoSaveSession() {
+    if (!currentSessionId || chatHistory.length === 0) return;
+    const firstUserMsg = chatHistory.find((m) => m.role === 'user');
+    const preview = firstUserMsg ? firstUserMsg.content.substring(0, 60) : 'Empty chat';
+    window.spotlightAPI.saveChatSession({
+      _id: currentSessionId,
+      messages: chatHistory.filter((m) => m.role !== 'system'),
+      preview,
+      createdAt: sessionCreatedAt,
+    }).catch((err) => console.error('Chat save failed:', err));
+  }
+
+  function startNewChat() {
+    // Save current session first if it has messages
+    if (currentSessionId && chatHistory.length > 0) {
+      autoSaveSession();
+    }
+    currentSessionId = null;
+    sessionCreatedAt = null;
+    chatHistory = [];
+    chatMessages.innerHTML = '';
+    if (chatSessionTitle) chatSessionTitle.textContent = 'New chat';
+    updateChatChipsVisibility();
+    chatInput.value = '';
+    chatInput.focus();
+    closeChatHistory();
+  }
+
+  async function loadChatSession(sessionId) {
+    try {
+      const sessions = await window.spotlightAPI.getChatSessions();
+      const session = sessions.find((s) => s._id === sessionId);
+      if (!session) return;
+
+      currentSessionId = session._id;
+      sessionCreatedAt = session.createdAt;
+      chatHistory = session.messages || [];
+
+      // Re-render messages
+      chatMessages.innerHTML = '';
+      chatHistory.forEach((msg) => {
+        if (msg.role === 'user') {
+          appendUserMessage(msg.content);
+        } else if (msg.role === 'assistant') {
+          appendAssistantMessage(msg.content);
+        }
+      });
+
+      if (chatSessionTitle) chatSessionTitle.textContent = session.preview || 'Chat';
+      updateChatChipsVisibility();
+      closeChatHistory();
+      scrollChat();
+    } catch (err) {
+      console.error('Failed to load chat session:', err);
+    }
+  }
+
+  async function deleteChatSession(sessionId) {
+    try {
+      await window.spotlightAPI.deleteChatSession(sessionId);
+      // If we deleted the active session, start a new chat
+      if (currentSessionId === sessionId) {
+        startNewChat();
+      }
+      await renderChatHistoryList();
+    } catch (err) {
+      console.error('Failed to delete chat session:', err);
+    }
+  }
+
+  async function renderChatHistoryList() {
+    if (!chatHistoryList) return;
+    try {
+      const sessions = await window.spotlightAPI.getChatSessions();
+      if (!sessions.length) {
+        chatHistoryList.innerHTML = '<span class="chat-history-empty">No saved chats yet</span>';
+        return;
+      }
+      chatHistoryList.innerHTML = sessions.map((s) => {
+        const isActive = s._id === currentSessionId;
+        const date = new Date(s.updatedAt || s.createdAt);
+        const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+          + ' ' + date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        return `<div class="chat-history-item ${isActive ? 'active' : ''}" data-id="${escapeAttr(s._id)}">
+          <div class="chat-history-item-info">
+            <div class="chat-history-item-preview">${escapeHtml(s.preview || 'Untitled')}</div>
+            <div class="chat-history-item-date">${escapeHtml(dateStr)} · ${(s.messages || []).length} msgs</div>
+          </div>
+          <button type="button" class="chat-history-item-delete" data-delete="${escapeAttr(s._id)}" title="Delete">✕</button>
+        </div>`;
+      }).join('');
+
+      // Bind click to load, delete to remove
+      chatHistoryList.querySelectorAll('.chat-history-item').forEach((item) => {
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.chat-history-item-delete')) return;
+          loadChatSession(item.dataset.id);
+        });
+      });
+      chatHistoryList.querySelectorAll('.chat-history-item-delete').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteChatSession(btn.dataset.delete);
+        });
+      });
+    } catch (err) {
+      chatHistoryList.innerHTML = '<span class="chat-history-empty">Failed to load</span>';
+    }
+  }
+
+  function toggleChatHistory() {
+    const isOpen = chatHistoryPanel?.classList.contains('open');
+    if (isOpen) {
+      closeChatHistory();
+    } else {
+      chatHistoryPanel?.classList.add('open');
+      renderChatHistoryList();
+    }
+  }
+
+  function closeChatHistory() {
+    chatHistoryPanel?.classList.remove('open');
+  }
+
+  // Wire up chat toolbar buttons
+  chatNewBtn?.addEventListener('click', startNewChat);
+  chatHistoryBtn?.addEventListener('click', toggleChatHistory);
+  chatHistoryClose?.addEventListener('click', closeChatHistory);
 
   function appendStreamingChunk(chunk) {
     if (streamingBubble) {
@@ -839,23 +1104,40 @@
   }
 
   document.addEventListener('keydown', (e) => {
-    if (currentMode === 'thought') return;
-    if (e.key === 'Tab' && !e.shiftKey) {
-      e.preventDefault();
-      const idx = MODES.indexOf(currentMode);
-      setMode(MODES[(idx + 1) % MODES.length]);
-    }
-    if (e.ctrlKey && e.key >= '1' && e.key <= '4') {
-      e.preventDefault();
-      setMode(MODES[parseInt(e.key, 10) - 1]);
-    }
+    // Escape always works regardless of mode or focus
     if (e.key === 'Escape') {
       if (currentMode === 'search' && browserLayoutMode === 'fullscreen' && browserSection?.classList.contains('visible')) {
         setBrowserLayout('expanded');
         return;
       }
       window.spotlightAPI.close();
+      return;
     }
+    // Ctrl+number shortcuts work in all modes
+    if (e.ctrlKey && e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
+      setMode(MODES[parseInt(e.key, 10) - 1]);
+      return;
+    }
+    // Tab to cycle modes — skip when thought textarea is focused to not interfere with typing
+    if (e.key === 'Tab' && !e.shiftKey) {
+      if (currentMode === 'thought' && document.activeElement === thoughtInput) return;
+      e.preventDefault();
+      const idx = MODES.indexOf(currentMode);
+      setMode(MODES[(idx + 1) % MODES.length]);
+    }
+  });
+
+  // Ensure clicking ANYWHERE in the spotlight gives the window keyboard focus
+  // so Escape and shortcuts always work — even on non-interactive areas
+  document.body.tabIndex = -1;
+  document.addEventListener('mousedown', () => {
+    // If nothing focusable was clicked, focus the body so keydown events fire
+    requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.documentElement) {
+        document.body.focus({ preventScroll: true });
+      }
+    });
   });
 
   renderRecent();

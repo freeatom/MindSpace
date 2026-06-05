@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   openCalendar: (prefill) => ipcRenderer.send('spotlight-open-calendar', prefill),
   parseCalendarCommand: (text) => ipcRenderer.invoke('calendar-parse', text),
   isCalendarTrigger: (text) => ipcRenderer.invoke('calendar-is-trigger', text),
+  getTags: () => ipcRenderer.invoke('spotlight-get-tags'),
+  createCalendarFromThought: (data) => ipcRenderer.invoke('spotlight-calendar-from-thought', data),
+  saveChatSession: (session) => ipcRenderer.invoke('spotlight-chat-save', session),
+  getChatSessions: () => ipcRenderer.invoke('spotlight-chat-get-all'),
+  deleteChatSession: (id) => ipcRenderer.invoke('spotlight-chat-delete', id),
 });

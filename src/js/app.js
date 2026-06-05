@@ -54,6 +54,8 @@ const App = {
         content: data.content,
         priority,
         persistence: data.persistence || 'persistent',
+        expiresAt: data.expiresAt || null,
+        calendarEventId: data.calendarEventId || null,
         tags: data.tags || ['spotlight'],
         x: pos.x,
         y: pos.y,
@@ -65,7 +67,12 @@ const App = {
       if (window.Timeline && typeof Timeline.render === 'function') {
         Timeline.render();
       }
-      SmartActions.toast('Thought captured from Spotlight');
+      if (data.calendarEventId) {
+        SmartActions.toast('Thought captured & linked to Calendar');
+        if (window.Calendar && Calendar.initialized) Calendar.refresh();
+      } else {
+        SmartActions.toast('Thought captured from Spotlight');
+      }
     });
 
     window.electronAPI.onSpotlightArchive(async (data) => {

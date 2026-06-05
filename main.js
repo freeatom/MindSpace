@@ -139,6 +139,22 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // When the main window reloads (Ctrl+R), also reload the spotlight
+  let initialLoadDone = false;
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!initialLoadDone) {
+      initialLoadDone = true;
+      return; // Skip the first load (app startup)
+    }
+    // Main window was reloaded — reload spotlight too
+    if (spotlightWindow && !spotlightWindow.isDestroyed()) {
+      spotlightReady = false;
+      spotlightPanelOpen = false;
+      spotlightWindow.webContents.reload();
+      spotlightWindow.once('ready-to-show', () => { spotlightReady = true; });
+    }
+  });
 }
 
 // Single instance lock
@@ -224,9 +240,10 @@ function createSpotlightWindow() {
   spotlightReady = false;
   const layout = getSpotlightLayout();
 
+  // Create at full height from the start so there's no resize flash
   spotlightWindow = new BrowserWindow({
     width: layout.width,
-    height: SPOTLIGHT_COMPACT_HEIGHT,
+    height: layout.maxHeight,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -244,7 +261,7 @@ function createSpotlightWindow() {
     },
   });
 
-  positionSpotlightWindow(spotlightWindow, layout.width, SPOTLIGHT_COMPACT_HEIGHT);
+  positionSpotlightWindow(spotlightWindow, layout.width, layout.maxHeight);
 
   spotlightWindow.loadFile(path.join(__dirname, 'src', 'spotlight.html'));
 
@@ -263,6 +280,15 @@ function createSpotlightWindow() {
     spotlightPanelOpen = false;
   });
 
+  // Catch Escape at the Chromium level — works regardless of DOM focus state
+  // This is the bulletproof way to handle Escape in transparent/frameless windows
+  spotlightWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape' && input.type === 'keyDown') {
+      event.preventDefault();
+      hideSpotlight();
+    }
+  });
+
   return spotlightWindow;
 }
 
@@ -275,11 +301,17 @@ function showSpotlight() {
   const layout = getSpotlightLayout();
 
   const reveal = () => {
-    spotlightPanelOpen = false;
-    positionSpotlightWindow(win, layout.width, SPOTLIGHT_COMPACT_HEIGHT);
+    // Position at full height before showing to avoid resize flash
+    positionSpotlightWindow(win, layout.width, layout.maxHeight);
     if (!win.isVisible()) win.show();
     win.focus();
-    win.webContents.send('spotlight-shown');
+    // Small delay to let the window paint at correct size before triggering
+    // renderer animations, preventing the double-pop effect
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('spotlight-shown');
+      }
+    }, 30);
   };
 
   const isLoaded = spotlightReady
@@ -363,6 +395,45 @@ ipcMain.on('spotlight-open-calendar', (event, prefill) => {
   }
 });
 
+// ─── Spotlight Chat History ───
+let chatHistoryDb = null;
+function getChatHistoryDb() {
+  if (chatHistoryDb) return chatHistoryDb;
+  const Datastore = require('nedb-promises');
+  const dbPath = path.join(app.getPath('userData'), 'mindspace-data', 'chat-history.db');
+  chatHistoryDb = Datastore.create({ filename: dbPath, autoload: true });
+  return chatHistoryDb;
+}
+
+ipcMain.handle('spotlight-chat-save', async (event, session) => {
+  const db = getChatHistoryDb();
+  const doc = {
+    _id: session._id || require('crypto').randomBytes(16).toString('hex'),
+    messages: session.messages || [],
+    preview: session.preview || '',
+    createdAt: session.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  // Upsert: update if exists, insert if new
+  const existing = await db.findOne({ _id: doc._id });
+  if (existing) {
+    await db.update({ _id: doc._id }, { $set: { messages: doc.messages, preview: doc.preview, updatedAt: doc.updatedAt } });
+  } else {
+    await db.insert(doc);
+  }
+  return doc;
+});
+
+ipcMain.handle('spotlight-chat-get-all', async () => {
+  const db = getChatHistoryDb();
+  return db.find({}).sort({ updatedAt: -1 });
+});
+
+ipcMain.handle('spotlight-chat-delete', async (event, id) => {
+  const db = getChatHistoryDb();
+  return db.remove({ _id: id });
+});
+
 // Spotlight saves go through main window's webContents
 ipcMain.on('spotlight-save-thought', (event, data) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -383,6 +454,65 @@ ipcMain.on('spotlight-execute-workflow', (event, name) => {
 });
 
 ipcMain.handle('spotlight-get-workflows', () => readSpotlightWorkflows());
+
+// Spotlight: get all tags for the tag selector
+ipcMain.handle('spotlight-get-tags', async () => {
+  const Datastore = require('nedb-promises');
+  const dbPath = path.join(app.getPath('userData'), 'mindspace-data', 'tags.db');
+  if (!fs.existsSync(dbPath)) return [];
+  try {
+    const db = Datastore.create({ filename: dbPath, autoload: true });
+    return await db.find({}).sort({ name: 1 });
+  } catch (err) {
+    console.error('Failed to read tags for spotlight:', err);
+    return [];
+  }
+});
+
+// Spotlight: create calendar event from a thought with today/until_date persistence
+ipcMain.handle('spotlight-calendar-from-thought', async (event, data) => {
+  try {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    let eventDate = todayKey;
+    let eventTime = '09:00';
+    let reminderMinutes = 15;
+
+    if (data.persistence === 'until_date' && data.expiresAt) {
+      const d = new Date(data.expiresAt);
+      eventDate = d.toISOString().slice(0, 10);
+      const hours = String(d.getHours()).padStart(2, '0');
+      const mins = String(d.getMinutes()).padStart(2, '0');
+      eventTime = `${hours}:${mins}`;
+    } else if (data.persistence === 'today') {
+      // End-of-day deadline
+      eventDate = todayKey;
+      eventTime = '23:59';
+    }
+
+    const title = (data.content || 'Thought').length > 60
+      ? data.content.substring(0, 60) + '…'
+      : data.content;
+
+    const calEvent = await calendarStore.create({
+      event_title: title,
+      event_description: data.content,
+      event_date: eventDate,
+      event_time: eventTime,
+      category: 'task',
+      priority: data.priority || 'medium',
+      repeat_type: 'none',
+      reminder_minutes: reminderMinutes,
+      status: 'upcoming',
+      source_type: 'thought',
+    });
+
+    if (calendarScheduler) await calendarScheduler.rescheduleAll();
+    return { calendarEventId: calEvent._id };
+  } catch (err) {
+    console.error('Failed to create calendar event from thought:', err);
+    return { calendarEventId: null };
+  }
+});
 ipcMain.handle('spotlight-search-files', async (event, query) => {
   if (!query) return [];
   return new Promise((resolve) => {
