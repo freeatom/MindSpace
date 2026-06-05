@@ -1,12 +1,110 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, exec } = require('child_process');
 const https = require('https');
 const http = require('http');
+const settingsStore = require('./services/settings-store');
+const { chatCompletion, streamChatCompletion, validateApiKey, getDefaultModel, PROVIDERS } = require('./services/llm-providers');
+const { searchWeb } = require('./services/web-search');
+const notesStore = require('./services/notes-store');
+const calendarStore = require('./services/calendar-store');
+const CalendarScheduler = require('./services/calendar-scheduler');
+const calendarParser = require('./services/calendar-parser');
 
 let mainWindow;
+let calendarScheduler = null;
 let spotlightWindow = null;
+let spotlightPanelOpen = false;
+let spotlightReady = false;
+let cachedSpotlightWorkflows = null;
+let workflowsCacheMtime = 0;
+
+function getNotesPath() {
+  return path.join(app.getPath('userData'), 'mindspace-data', 'spotlight-notes.txt');
+}
+
+function readSpotlightNotes() {
+  const notesPath = getNotesPath();
+  if (!fs.existsSync(notesPath)) return '';
+  return fs.readFileSync(notesPath, 'utf8');
+}
+
+function writeSpotlightNotes(text) {
+  const notesPath = getNotesPath();
+  const dir = path.dirname(notesPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(notesPath, text || '', 'utf8');
+}
+
+async function migrateLegacySpotlightNotes() {
+  const legacyPath = getNotesPath();
+  if (!fs.existsSync(legacyPath)) return;
+  const text = fs.readFileSync(legacyPath, 'utf8').trim();
+  if (!text) return;
+  const existing = await notesStore.getAll();
+  const alreadyMigrated = existing.some((n) => n.name === 'Spotlight Scratchpad (migrated)');
+  if (!alreadyMigrated) {
+    await notesStore.create({
+      name: 'Spotlight Scratchpad (migrated)',
+      content: text,
+    });
+  }
+  fs.unlinkSync(legacyPath);
+}
+
+// ─── Notes database (shared: main app + spotlight) ───
+ipcMain.handle('notes-create', async (event, data) => notesStore.create(data));
+ipcMain.handle('notes-update', async (event, id, updates) => notesStore.update(id, updates));
+ipcMain.handle('notes-delete', async (event, id) => notesStore.remove(id));
+ipcMain.handle('notes-get', async (event, id) => notesStore.getById(id));
+ipcMain.handle('notes-get-all', async () => notesStore.getAll());
+ipcMain.handle('notes-search', async (event, query) => notesStore.search(query));
+
+// ─── Calendar events database ───
+ipcMain.handle('calendar-create', async (event, data) => {
+  const created = await calendarStore.create(data);
+  if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  return created;
+});
+ipcMain.handle('calendar-update', async (event, id, updates) => {
+  const updated = await calendarStore.update(id, updates);
+  if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  return updated;
+});
+ipcMain.handle('calendar-delete', async (event, id) => {
+  const result = await calendarStore.remove(id);
+  if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  return result;
+});
+ipcMain.handle('calendar-get', async (event, id) => calendarStore.getById(id));
+ipcMain.handle('calendar-get-all', async () => calendarStore.getAll());
+ipcMain.handle('calendar-search', async (event, filters) => calendarStore.search(filters));
+ipcMain.handle('calendar-stats', async () => calendarStore.getStats());
+ipcMain.handle('calendar-parse', async (event, text) => calendarParser.parseCalendarCommand(text));
+ipcMain.handle('calendar-is-trigger', async (event, text) => calendarParser.isCalendarTrigger(text));
+ipcMain.handle('calendar-snooze', async (event, id, minutes) => {
+  if (calendarScheduler) await calendarScheduler.snooze(id, minutes);
+  return true;
+});
+ipcMain.handle('calendar-dismiss-notification', async (event, id) => {
+  if (calendarScheduler) await calendarScheduler.dismiss(id);
+  return true;
+});
+
+function getAiConfigFromStore() {
+  const userData = app.getPath('userData');
+  const provider = settingsStore.getSetting(userData, 'aiProvider') || 'groq';
+  const apiKey = settingsStore.getSetting(userData, 'aiApiKey') || '';
+  const model = settingsStore.getSetting(userData, 'aiModel') || '';
+  return {
+    provider,
+    apiKey,
+    model: model || getDefaultModel(provider),
+    hasKey: !!(apiKey && apiKey.trim()),
+    supportsStream: !!(PROVIDERS[provider]?.supportsStream),
+  };
+}
 let clipboardPollTimer = null;
 let lastClipText = '';
 let lastClipImageHash = '';
@@ -56,13 +154,23 @@ if (!gotTheLock) {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await notesStore.init(app.getPath('userData'));
+  await migrateLegacySpotlightNotes();
+  await calendarStore.init(app.getPath('userData'));
+
   createWindow();
+
+  calendarScheduler = new CalendarScheduler(() => mainWindow);
+  await calendarScheduler.start();
 
   // Register global spotlight shortcut
   globalShortcut.register('Alt+Space', () => {
     toggleSpotlight();
   });
+
+  // Pre-warm spotlight so Alt+Space opens instantly (hidden, already loaded)
+  prewarmSpotlight();
 
   // Start clipboard polling
   startClipboardPolling();
@@ -71,6 +179,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   stopClipboardPolling();
+  if (calendarScheduler) calendarScheduler.stop();
 });
 
 app.on('window-all-closed', () => {
@@ -83,46 +192,174 @@ app.on('activate', () => {
   }
 });
 
-// ─── Spotlight Window ───
-function toggleSpotlight() {
+// ─── Spotlight Window (right-docked, above system tray) ───
+const SPOTLIGHT_WIDTH = 380;
+
+function getSpotlightLayout() {
+  const display = screen.getPrimaryDisplay();
+  const { workArea } = display;
+  return {
+    width: SPOTLIGHT_WIDTH,
+    maxHeight: workArea.height,
+    workArea,
+  };
+}
+
+function positionSpotlightWindow(win, width, height) {
+  const { workArea } = getSpotlightLayout();
+  const w = width || SPOTLIGHT_WIDTH;
+  const h = Math.min(height, workArea.height);
+  const x = workArea.x + workArea.width - w;
+  const y = workArea.y + workArea.height - h;
+  win.setBounds({ x, y, width: w, height: h });
+}
+
+const SPOTLIGHT_COMPACT_HEIGHT = 118;
+
+function createSpotlightWindow() {
   if (spotlightWindow && !spotlightWindow.isDestroyed()) {
-    spotlightWindow.close();
-    spotlightWindow = null;
-    return;
+    return spotlightWindow;
   }
 
+  spotlightReady = false;
+  const layout = getSpotlightLayout();
+
   spotlightWindow = new BrowserWindow({
-    width: 640,
-    height: 70,
+    width: layout.width,
+    height: SPOTLIGHT_COMPACT_HEIGHT,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
-    center: true,
+    center: false,
     show: false,
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, 'spotlight-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
+      backgroundThrottling: false,
     },
   });
 
+  positionSpotlightWindow(spotlightWindow, layout.width, SPOTLIGHT_COMPACT_HEIGHT);
+
   spotlightWindow.loadFile(path.join(__dirname, 'src', 'spotlight.html'));
-  spotlightWindow.once('ready-to-show', () => spotlightWindow.show());
-  spotlightWindow.on('blur', () => {
-    if (spotlightWindow && !spotlightWindow.isDestroyed()) {
-      spotlightWindow.close();
-      spotlightWindow = null;
-    }
+
+  spotlightWindow.once('ready-to-show', () => {
+    spotlightReady = true;
   });
-  spotlightWindow.on('closed', () => { spotlightWindow = null; });
+
+  spotlightWindow.on('blur', () => {
+    if (spotlightPanelOpen) return;
+    hideSpotlight();
+  });
+
+  spotlightWindow.on('closed', () => {
+    spotlightWindow = null;
+    spotlightReady = false;
+    spotlightPanelOpen = false;
+  });
+
+  return spotlightWindow;
 }
 
-ipcMain.on('spotlight-close', () => {
+function prewarmSpotlight() {
+  createSpotlightWindow();
+}
+
+function showSpotlight() {
+  const win = createSpotlightWindow();
+  const layout = getSpotlightLayout();
+
+  const reveal = () => {
+    spotlightPanelOpen = false;
+    positionSpotlightWindow(win, layout.width, SPOTLIGHT_COMPACT_HEIGHT);
+    if (!win.isVisible()) win.show();
+    win.focus();
+    win.webContents.send('spotlight-shown');
+  };
+
+  const isLoaded = spotlightReady
+    || (!win.webContents.isLoading() && win.webContents.getURL() !== '');
+
+  if (isLoaded) {
+    spotlightReady = true;
+    reveal();
+  } else {
+    win.once('ready-to-show', () => {
+      spotlightReady = true;
+      reveal();
+    });
+  }
+}
+
+function hideSpotlight() {
+  if (spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible()) {
+    spotlightWindow.webContents.send('spotlight-hidden');
+    spotlightWindow.hide();
+  }
+}
+
+function toggleSpotlight() {
+  if (spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible()) {
+    hideSpotlight();
+    return;
+  }
+  showSpotlight();
+}
+
+function readSpotlightWorkflows() {
+  const dbPath = path.join(app.getPath('userData'), 'mindspace-data', 'workflows.db');
+  if (!fs.existsSync(dbPath)) return [];
+  try {
+    const stat = fs.statSync(dbPath);
+    if (cachedSpotlightWorkflows && stat.mtimeMs === workflowsCacheMtime) {
+      return cachedSpotlightWorkflows;
+    }
+    const lines = fs.readFileSync(dbPath, 'utf8').split('\n');
+    const wfs = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try { wfs.push(JSON.parse(line)); } catch (e) { /* skip bad line */ }
+    }
+    cachedSpotlightWorkflows = wfs;
+    workflowsCacheMtime = stat.mtimeMs;
+    return wfs;
+  } catch (err) {
+    console.error('Failed to read workflows for spotlight:', err);
+    return cachedSpotlightWorkflows || [];
+  }
+}
+
+ipcMain.on('spotlight-set-panel-open', (event, open) => {
+  spotlightPanelOpen = !!open;
+});
+
+ipcMain.handle('spotlight-get-layout', () => getSpotlightLayout());
+
+ipcMain.on('spotlight-resize', (event, { width, height }) => {
   if (spotlightWindow && !spotlightWindow.isDestroyed()) {
-    spotlightWindow.close();
-    spotlightWindow = null;
+    const layout = getSpotlightLayout();
+    const w = width || layout.width;
+    const h = Math.min(Math.max(height || 108, 96), layout.maxHeight);
+    positionSpotlightWindow(spotlightWindow, w, h);
+  }
+});
+
+ipcMain.on('spotlight-close', () => {
+  hideSpotlight();
+});
+
+ipcMain.on('spotlight-open-calendar', (event, prefill) => {
+  hideSpotlight();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('calendar-open-event-modal', prefill || {});
   }
 });
 
@@ -145,23 +382,7 @@ ipcMain.on('spotlight-execute-workflow', (event, name) => {
   }
 });
 
-ipcMain.handle('spotlight-get-workflows', async () => {
-  try {
-    const dbPath = path.join(app.getPath('userData'), 'mindspace-data', 'workflows.db');
-    if (!fs.existsSync(dbPath)) return [];
-
-    const lines = fs.readFileSync(dbPath, 'utf8').split('\n');
-    const wfs = [];
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try { wfs.push(JSON.parse(line)); } catch (e) { }
-    }
-    return wfs;
-  } catch (err) {
-    console.error('Failed to get workflows for spotlight:', err);
-    return [];
-  }
-});
+ipcMain.handle('spotlight-get-workflows', () => readSpotlightWorkflows());
 ipcMain.handle('spotlight-search-files', async (event, query) => {
   if (!query) return [];
   return new Promise((resolve) => {
@@ -207,6 +428,109 @@ ipcMain.on('spotlight-open-url', (event, url) => {
   shell.openExternal(url);
 });
 
+// ─── Spotlight: AI, Search, Notes ───
+ipcMain.handle('spotlight-get-ai-config', () => getAiConfigFromStore());
+
+ipcMain.handle('ai-test-connection', async (event, { provider, apiKey, model }) => {
+  const p = provider || settingsStore.getSetting(app.getPath('userData'), 'aiProvider') || 'groq';
+  const key = apiKey || settingsStore.getSetting(app.getPath('userData'), 'aiApiKey') || '';
+  const m = model || settingsStore.getSetting(app.getPath('userData'), 'aiModel') || '';
+  return validateApiKey({ provider: p, apiKey: key, model: m || getDefaultModel(p) });
+});
+
+ipcMain.handle('spotlight-web-search', async (event, query) => {
+  try {
+    const data = await searchWeb(query);
+    const config = getAiConfigFromStore();
+    if (config.hasKey && data.results?.length) {
+      try {
+        const snippets = data.results.slice(0, 5).map((r, i) =>
+          `${i + 1}. ${r.title}: ${r.snippet || r.url}`
+        ).join('\n');
+        const context = data.aiAnswer?.text ? `Instant answer: ${data.aiAnswer.text}\n\n` : '';
+        const reply = await chatCompletion({
+          provider: config.provider,
+          apiKey: config.apiKey,
+          model: config.model,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a helpful search assistant. Provide a concise, accurate summary (3-5 sentences) answering the user query based on the search results. Be factual and direct.',
+            },
+            {
+              role: 'user',
+              content: `Query: "${query}"\n\n${context}Search results:\n${snippets}\n\nProvide a helpful summary answer.`,
+            },
+          ],
+        });
+        data.aiSummary = reply?.content || '';
+      } catch (aiErr) {
+        console.error('AI search summary failed:', aiErr.message);
+      }
+    }
+    return data;
+  } catch (err) {
+    console.error('Web search failed:', err);
+    return { results: [], aiAnswer: null, query: query || '' };
+  }
+});
+
+ipcMain.handle('spotlight-get-notes', async () => {
+  const all = await notesStore.getAll();
+  const draft = all.find((n) => n.name === '__spotlight_draft__');
+  return draft ? draft.content : '';
+});
+
+ipcMain.handle('spotlight-save-notes', async (event, text) => {
+  if (!text || !text.trim()) return true;
+  const all = await notesStore.getAll();
+  const draft = all.find((n) => n.name === '__spotlight_draft__');
+  if (draft) {
+    await notesStore.update(draft._id, { content: text });
+  } else {
+    await notesStore.create({ name: '__spotlight_draft__', content: text });
+  }
+  return true;
+});
+
+ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
+  const config = getAiConfigFromStore();
+  if (!config.hasKey) {
+    throw new Error('No API key configured. Add your Groq API key in Settings.');
+  }
+
+  const opts = {
+    provider: config.provider,
+    apiKey: config.apiKey,
+    model: config.model,
+    messages,
+  };
+
+  if (stream && config.supportsStream) {
+    return new Promise((resolve, reject) => {
+      streamChatCompletion({
+        ...opts,
+        onChunk: (chunk) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('spotlight-ai-chunk', { chunk });
+          }
+        },
+        onDone: () => resolve({ streamed: true }),
+        onError: (err) => reject(err),
+      });
+    });
+  }
+
+  const result = await chatCompletion(opts);
+  return { content: result.content, streamed: false };
+});
+
+ipcMain.on('spotlight-open-result-url', (event, url) => {
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    shell.openExternal(url);
+  }
+});
+
 // ─── Clipboard Polling ───
 function startClipboardPolling() {
   lastClipText = clipboard.readText() || '';
@@ -246,57 +570,16 @@ function stopClipboardPolling() {
   if (clipboardPollTimer) clearInterval(clipboardPollTimer);
 }
 
-// ─── AI Query ───
+// ─── AI Query (Commander / Braindump — preserves existing API shape) ───
 ipcMain.handle('ai-query', async (event, { provider, apiKey, model, messages }) => {
-  const endpoints = {
-    openrouter: { host: 'openrouter.ai', path: '/api/v1/chat/completions' },
-    groq: { host: 'api.groq.com', path: '/openai/v1/chat/completions' },
-    gemini: { host: 'generativelanguage.googleapis.com', path: `/v1beta/models/${model}:generateContent?key=${apiKey}` },
-  };
+  const resolvedModel = model || getDefaultModel(provider);
+  const result = await chatCompletion({ provider, apiKey, model: resolvedModel, messages });
 
-  const ep = endpoints[provider];
-  if (!ep) throw new Error('Unknown AI provider: ' + provider);
-
-  // Gemini uses a different format
   if (provider === 'gemini') {
-    const body = JSON.stringify({
-      contents: messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      })),
-    });
-    return makeHttpsRequest(ep.host, ep.path, body, null);
+    return result.raw;
   }
-
-  // OpenAI-compatible (OpenRouter, Groq)
-  const body = JSON.stringify({ model, messages, temperature: 0.3 });
-  return makeHttpsRequest(ep.host, ep.path, body, apiKey);
+  return result.raw;
 });
-
-function makeHttpsRequest(host, urlPath, body, apiKey) {
-  return new Promise((resolve, reject) => {
-    const headers = {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body),
-    };
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
-    const req = https.request({ hostname: host, path: urlPath, method: 'POST', headers }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error('Failed to parse AI response: ' + data.substring(0, 200)));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
 
 // ─── Run Shell Command ───
 ipcMain.handle('run-shell-command', async (event, command) => {

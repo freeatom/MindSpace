@@ -19,6 +19,8 @@ const App = {
     await Canvas.init();
     await Timeline.init();
     await Archives.init();
+    await Notes.init();
+    await Calendar.init();
     await Tools.init();
     QuickAdd.init();
     SmartActions.init();
@@ -129,6 +131,8 @@ const App = {
       canvas: 'Canvas',
       timeline: 'Timeline',
       archives: 'Archives',
+      notes: 'Notes',
+      calendar: 'Calendar',
       tools: 'Tools',
       settings: 'Settings',
     };
@@ -150,6 +154,14 @@ const App = {
     // Refresh archives when switching to it
     if (viewName === 'archives') {
       Archives.refresh();
+    }
+
+    if (viewName === 'notes') {
+      Notes.refresh();
+    }
+
+    if (viewName === 'calendar') {
+      Calendar.refresh();
     }
 
     // Refresh tools when switching to it
@@ -199,6 +211,8 @@ const App = {
       if (e.key === 'Escape') {
         if (QuickAdd.isOpen) {
           QuickAdd.close();
+        } else if (document.getElementById('cal-modal-overlay')?.classList.contains('visible')) {
+          Calendar.closeModal();
         } else if (document.getElementById('tools-iframe-container')?.classList.contains('visible')) {
           Tools.closeIframe();
         } else {

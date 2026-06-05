@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="styles/canvas.css">
   <link rel="stylesheet" href="styles/timeline.css">
   <link rel="stylesheet" href="styles/archives.css">
+  <link rel="stylesheet" href="styles/notes.css">
+  <link rel="stylesheet" href="styles/calendar.css">
   <link rel="stylesheet" href="styles/smartactions.css">
   <link rel="stylesheet" href="styles/tools.css">
   <link rel="stylesheet" href="styles/clipboard.css">
@@ -136,6 +138,24 @@
             <path d="M10 12h4"/>
           </svg>
           <span>Archives</span>
+        </button>
+        <button class="sidebar-btn" data-view="notes" id="nav-notes" aria-label="Notes">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <span>Notes</span>
+        </button>
+        <button class="sidebar-btn" data-view="calendar" id="nav-calendar" aria-label="Calendar">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span>Calendar</span>
         </button>
         <button class="sidebar-btn" data-view="tools" id="nav-tools" aria-label="Tools">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -318,6 +338,238 @@
             </div>
           </div>
           <div id="braindump-results" class="braindump-results"></div>
+        </div>
+      </div>
+
+      <!-- ─── Notes View ─── -->
+      <div id="notes-view" class="content-view">
+        <div class="notes-container">
+          <div class="notes-toolbar">
+            <input type="text" id="notes-search" class="notes-search" placeholder="Search notes by name or content..." />
+            <select id="notes-date-filter" class="notes-date-filter" aria-label="Filter by date">
+              <option value="all">All time</option>
+              <option value="today">Today</option>
+              <option value="week">Last 7 days</option>
+              <option value="month">Last 30 days</option>
+              <option value="year">This year</option>
+            </select>
+            <button class="notes-add-btn" id="notes-add-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              New Note
+            </button>
+          </div>
+          <div id="notes-list" class="notes-list"></div>
+          <div id="notes-empty" class="notes-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <p>No notes yet</p>
+            <p>Click <strong>New Note</strong> or save from Spotlight (Alt+Space → Notes)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes Create/Edit Modal -->
+      <div id="notes-modal-overlay" class="modal-overlay">
+        <div class="notes-modal">
+          <div class="notes-modal-header">
+            <h3 id="notes-modal-heading">New Note</h3>
+            <button id="notes-modal-close" class="modal-close" aria-label="Close">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div>
+            <label class="notes-field-label" for="notes-modal-name">Note name</label>
+            <input type="text" id="notes-modal-name" class="notes-field-input" placeholder="e.g. Meeting notes, Ideas, Todo list" />
+          </div>
+          <div>
+            <label class="notes-field-label" for="notes-modal-content">Content</label>
+            <textarea id="notes-modal-content" class="notes-field-textarea" placeholder="Write your note here..."></textarea>
+          </div>
+          <div id="notes-modal-dates" class="notes-modal-dates" style="display:none;"></div>
+          <div class="notes-modal-actions quickadd-actions">
+            <button id="notes-modal-delete" class="notes-modal-delete" style="display:none;">Delete</button>
+            <button id="notes-modal-save" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span id="notes-modal-save-text">Save Note</span>
+            </button>
+            <span class="quickadd-hint">or press <kbd>Ctrl+Enter</kbd></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Calendar View ─── -->
+      <div id="calendar-view" class="content-view">
+        <div class="cal-container">
+          <div class="cal-toolbar">
+            <div class="cal-view-tabs">
+              <button type="button" class="cal-view-tab active" data-cal-view="dashboard">Dashboard</button>
+              <button type="button" class="cal-view-tab" data-cal-view="month">Month</button>
+              <button type="button" class="cal-view-tab" data-cal-view="week">Week</button>
+              <button type="button" class="cal-view-tab" data-cal-view="day">Day</button>
+            </div>
+            <div class="cal-nav-group">
+              <button type="button" class="cal-nav-btn" id="cal-prev-period">&#8249;</button>
+              <span class="cal-period-label" id="cal-period-label">Calendar</span>
+              <button type="button" class="cal-nav-btn" id="cal-next-period">&#8250;</button>
+              <button type="button" class="cal-today-btn" id="cal-today-btn">Today</button>
+              <button type="button" class="cal-add-btn" id="cal-add-btn">+ Add Event</button>
+            </div>
+          </div>
+
+          <div class="cal-panel active" data-cal-panel="dashboard">
+            <div class="cal-stats-row">
+              <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-total">0</div><div class="cal-stat-label">This Month</div></div>
+              <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-upcoming">0</div><div class="cal-stat-label">Upcoming</div></div>
+              <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-completed">0</div><div class="cal-stat-label">Completed</div></div>
+              <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-overdue">0</div><div class="cal-stat-label">Overdue</div></div>
+            </div>
+            <div class="cal-dashboard-grid">
+              <div class="cal-dash-section"><h4>Upcoming Events</h4><div id="cal-list-upcoming"></div></div>
+              <div class="cal-dash-section"><h4>Today's Events</h4><div id="cal-list-today"></div></div>
+              <div class="cal-dash-section"><h4>Overdue</h4><div id="cal-list-overdue"></div></div>
+              <div class="cal-dash-section"><h4>Recently Completed</h4><div id="cal-list-completed"></div></div>
+            </div>
+            <div class="cal-history-section">
+              <h4>Event History &amp; Search</h4>
+              <div class="cal-history-filters">
+                <input type="text" id="cal-history-search" class="cal-history-search" placeholder="Search by title..." />
+                <select id="cal-filter-category">
+                  <option value="all">All categories</option>
+                  <option value="meeting">Meeting</option>
+                  <option value="task">Task</option>
+                  <option value="reminder">Reminder</option>
+                  <option value="personal">Personal</option>
+                  <option value="work">Work</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select id="cal-filter-status">
+                  <option value="all">All statuses</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="completed">Completed</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <select id="cal-filter-year">
+                  <option value="">All years</option>
+                </select>
+                <select id="cal-filter-month">
+                  <option value="">All months</option>
+                  <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+                  <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+                  <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+                  <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+                </select>
+                <input type="date" id="cal-filter-from" title="From date" />
+                <input type="date" id="cal-filter-to" title="To date" />
+              </div>
+              <div id="cal-history-list"></div>
+            </div>
+          </div>
+
+          <div class="cal-panel" data-cal-panel="month">
+            <div class="cal-month-grid" id="cal-month-grid"></div>
+          </div>
+          <div class="cal-panel" data-cal-panel="week">
+            <div class="cal-week-grid" id="cal-week-grid"></div>
+          </div>
+          <div class="cal-panel" data-cal-panel="day">
+            <div class="cal-day-timeline" id="cal-day-timeline"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar Event Modal -->
+      <div id="cal-modal-overlay" class="modal-overlay">
+        <div class="cal-modal">
+          <div class="cal-modal-header">
+            <h3 id="cal-modal-heading">New Event</h3>
+            <button id="cal-modal-close" class="modal-close" aria-label="Close">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div class="cal-field">
+            <label for="cal-event-title">Event Title *</label>
+            <input type="text" id="cal-event-title" placeholder="Meeting with team, Doctor appointment..." />
+          </div>
+          <div class="cal-form-row">
+            <div class="cal-field">
+              <label for="cal-event-date">Date *</label>
+              <input type="date" id="cal-event-date" />
+            </div>
+            <div class="cal-field">
+              <label for="cal-event-time">Time *</label>
+              <input type="time" id="cal-event-time" value="09:00" />
+            </div>
+          </div>
+          <div id="cal-modal-picker"></div>
+          <div class="cal-field">
+            <label for="cal-event-desc">Description / Notes</label>
+            <textarea id="cal-event-desc" placeholder="Optional details..."></textarea>
+          </div>
+          <div class="cal-form-row">
+            <div class="cal-field">
+              <label for="cal-event-category">Category</label>
+              <select id="cal-event-category">
+                <option value="meeting">Meeting</option>
+                <option value="task">Task</option>
+                <option value="reminder">Reminder</option>
+                <option value="personal">Personal</option>
+                <option value="work">Work</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="cal-field">
+              <label for="cal-event-priority">Priority</label>
+              <select id="cal-event-priority">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="cal-form-row">
+            <div class="cal-field">
+              <label for="cal-event-repeat">Repeat</label>
+              <select id="cal-event-repeat">
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div class="cal-field">
+              <label for="cal-reminder-select">Reminder</label>
+              <select id="cal-reminder-select">
+                <option value="0">At event time</option>
+                <option value="5">5 minutes before</option>
+                <option value="15" selected>15 minutes before</option>
+                <option value="30">30 minutes before</option>
+                <option value="60">1 hour before</option>
+                <option value="1440">1 day before</option>
+                <option value="-1">Custom (minutes)</option>
+              </select>
+              <input type="number" id="cal-reminder-custom" min="1" placeholder="Custom minutes" style="display:none;margin-top:6px;" />
+            </div>
+          </div>
+          <div id="cal-modal-dates" class="cal-modal-dates" style="display:none;"></div>
+          <div class="cal-modal-actions">
+            <button type="button" id="cal-modal-delete" class="cal-modal-delete" style="display:none;">Delete</button>
+            <button type="button" id="cal-modal-complete" class="cal-modal-complete" style="display:none;">Mark Complete</button>
+            <button type="button" id="cal-modal-save" class="btn btn-primary">Save Event</button>
+          </div>
         </div>
       </div>
 
@@ -548,24 +800,34 @@
 
             <!-- AI Configuration -->
             <div class="settings-section">
-              <h3 class="settings-section-title">AI Command Palette (Ctrl+K)</h3>
+              <h3 class="settings-section-title">AI Assistant</h3>
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: var(--space-md);">
+                Powers <strong>Alt+Space → AI Chat</strong>, Commander (Ctrl+K), Brain Dump, and Auto-Tag.
+                Keys are stored locally on your machine only.
+              </p>
               <div class="settings-group">
                 <label class="setting-label" for="setting-aiProvider">AI Provider</label>
                 <select id="setting-aiProvider" class="setting-select">
-                  <option value="openrouter">OpenRouter (Recommended)</option>
-                  <option value="groq">Groq (Fast)</option>
+                  <option value="groq">Groq (Recommended for Chat)</option>
+                  <option value="openrouter">OpenRouter</option>
                   <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI</option>
                 </select>
               </div>
               <div class="settings-group">
                 <label class="setting-label" for="setting-aiApiKey">API Key</label>
-                <input type="password" id="setting-aiApiKey" class="setting-input" placeholder="sk-or-v1-..." style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
+                <input type="password" id="setting-aiApiKey" class="setting-input" placeholder="gsk_... or sk-..." style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
               </div>
               <div class="settings-group">
                 <label class="setting-label" for="setting-aiModel">Model (Optional)</label>
-                <input type="text" id="setting-aiModel" class="setting-input" placeholder="e.g. google/gemini-2.0-flash-001" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
+                <input type="text" id="setting-aiModel" class="setting-input" placeholder="e.g. llama-3.3-70b-versatile" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
               </div>
-              <button id="setting-save-ai" class="btn btn-primary" style="margin-top:10px;">Save AI Settings</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                <button id="setting-save-ai" class="btn btn-primary">Save AI Settings</button>
+                <button id="setting-test-ai" class="btn btn-outline" type="button">Test Connection</button>
+                <button id="setting-remove-ai-key" class="btn btn-outline" type="button">Remove API Key</button>
+              </div>
+              <p id="setting-ai-status" style="font-size:12px; margin-top:8px; min-height:18px; color:var(--text-muted);"></p>
             </div>
 
             <!-- Security Section -->
@@ -621,6 +883,7 @@
             <div class="settings-section">
               <h3 class="settings-section-title">Keyboard Shortcuts</h3>
               <div class="shortcuts-grid">
+                <div class="shortcut-item"><kbd>Alt+Space</kbd><span>Spotlight — Thought, Chat, Search, Notes</span></div>
                 <div class="shortcut-item"><kbd>Ctrl+N</kbd><span>New thought</span></div>
                 <div class="shortcut-item"><kbd>Ctrl+T</kbd><span>Toggle view</span></div>
                 <div class="shortcut-item"><kbd>Ctrl+F</kbd><span>Search</span></div>
@@ -637,6 +900,17 @@
       </div>
 
     </main>
+
+    <!-- FAB Add Event (global) -->
+    <button id="fab-add-event" aria-label="Add calendar event" title="Add Event">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="12" y1="11" x2="12" y2="17"/>
+        <line x1="9" y1="14" x2="15" y2="14"/>
+      </svg>
+    </button>
 
     <!-- FAB (Floating Action Button) -->
     <button id="fab-add" class="fab" aria-label="Add new thought">
@@ -868,6 +1142,9 @@
   <script src="js/canvas.js"></script>
   <script src="js/timeline.js"></script>
   <script src="js/archives.js"></script>
+  <script src="js/notes.js"></script>
+  <script src="js/minicalendar.js"></script>
+  <script src="js/calendar.js"></script>
   <script src="js/smartactions.js"></script>
   <script src="js/tools.js"></script>
   <script src="js/settings.js"></script>

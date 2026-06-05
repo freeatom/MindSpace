@@ -67,6 +67,21 @@ const Commander = {
       return;
     }
 
+    if (window.store && store.isCalendarTrigger) {
+      store.isCalendarTrigger(query).then((isCal) => {
+        if (isCal && query === input.value.trim()) {
+          results.innerHTML = `
+            <div class="commander-workflow-match" style="cursor:pointer" id="commander-cal-hint">
+              <span class="wf-icon">📅</span>
+              <span class="wf-name">Create calendar event</span>
+              <span class="wf-desc">— "${Workflows.escapeHtml(query)}"</span>
+              <span class="wf-hint">Press Enter to open</span>
+            </div>`;
+          document.getElementById('commander-cal-hint')?.addEventListener('click', () => this.execute());
+        }
+      });
+    }
+
     // If they type just '/', show all workflows!
     const matches = query === '/' ? Workflows.all : Workflows.findByName(query.replace(/^\//, ''));
     
@@ -109,6 +124,15 @@ const Commander = {
     const results = document.getElementById('commander-results');
     const query = input.value.trim();
     if (!query) return;
+
+    const isCal = await store.isCalendarTrigger(query);
+    if (isCal) {
+      const prefill = await store.parseCalendarCommand(query);
+      this.close();
+      App.switchView('calendar');
+      Calendar.openModal(null, prefill);
+      return;
+    }
 
     // Check for exact workflow match first
     if (window.Workflows) {
@@ -323,6 +347,7 @@ The user's OS is Windows. Use PowerShell commands.`;
       openrouter: 'google/gemini-2.0-flash-001',
       groq: 'llama-3.3-70b-versatile',
       gemini: 'gemini-2.0-flash',
+      openai: 'gpt-4o-mini',
     };
     return defaults[provider] || 'gpt-3.5-turbo';
   },
