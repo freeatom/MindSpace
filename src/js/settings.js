@@ -48,7 +48,8 @@ const Settings = {
 
     // AI Config
     const aiProvider = document.getElementById('setting-aiProvider');
-    if (aiProvider) aiProvider.value = this.cache.aiProvider || 'openrouter';
+    if (aiProvider) aiProvider.value = this.cache.aiProvider || 'groq';
+    this.updateModelPlaceholder();
 
     const aiApiKey = document.getElementById('setting-aiApiKey');
     if (aiApiKey) aiApiKey.value = this.cache.aiApiKey || '';
@@ -108,17 +109,102 @@ const Settings = {
     const saveAiBtn = document.getElementById('setting-save-ai');
     if (saveAiBtn) {
       saveAiBtn.addEventListener('click', async () => {
-        saveAiBtn.textContent = 'Saving...';
-        await this.save('aiProvider', document.getElementById('setting-aiProvider').value);
-        await this.save('aiApiKey', document.getElementById('setting-aiApiKey').value);
-        await this.save('aiModel', document.getElementById('setting-aiModel').value);
-        
-        setTimeout(() => {
-          saveAiBtn.textContent = '✓ Saved';
-          setTimeout(() => saveAiBtn.textContent = 'Save AI Settings', 2000);
-        }, 300);
+        await this.persistAiSettings(saveAiBtn);
       });
     }
+
+    const testAiBtn = document.getElementById('setting-test-ai');
+    if (testAiBtn) {
+      testAiBtn.addEventListener('click', () => this.testAiConnection());
+    }
+
+    const removeAiBtn = document.getElementById('setting-remove-ai-key');
+    if (removeAiBtn) {
+      removeAiBtn.addEventListener('click', () => this.removeAiKey());
+    }
+
+    const aiProviderEl = document.getElementById('setting-aiProvider');
+    if (aiProviderEl) {
+      aiProviderEl.addEventListener('change', () => this.updateModelPlaceholder());
+    }
+  },
+
+  updateModelPlaceholder() {
+    const provider = document.getElementById('setting-aiProvider')?.value || 'groq';
+    const modelInput = document.getElementById('setting-aiModel');
+    const placeholders = {
+      groq: 'llama-3.3-70b-versatile',
+      openrouter: 'google/gemini-2.0-flash-001',
+      gemini: 'gemini-2.0-flash',
+      openai: 'gpt-4o-mini',
+    };
+    if (modelInput && !modelInput.value) {
+      modelInput.placeholder = placeholders[provider] || '';
+    }
+  },
+
+  setAiStatus(message, isError) {
+    const el = document.getElementById('setting-ai-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.color = isError ? 'var(--priority-high, #ef4444)' : 'var(--text-muted)';
+  },
+
+  async persistAiSettings(btn) {
+    const saveAiBtn = btn || document.getElementById('setting-save-ai');
+    if (saveAiBtn) saveAiBtn.textContent = 'Saving...';
+    await this.save('aiProvider', document.getElementById('setting-aiProvider').value);
+    await this.save('aiApiKey', document.getElementById('setting-aiApiKey').value);
+    await this.save('aiModel', document.getElementById('setting-aiModel').value);
+    this.setAiStatus('Settings saved locally.');
+    if (saveAiBtn) {
+      setTimeout(() => {
+        saveAiBtn.textContent = '✓ Saved';
+        setTimeout(() => { saveAiBtn.textContent = 'Save AI Settings'; }, 2000);
+      }, 300);
+    }
+  },
+
+  async testAiConnection() {
+    const provider = document.getElementById('setting-aiProvider').value;
+    const apiKey = document.getElementById('setting-aiApiKey').value;
+    const model = document.getElementById('setting-aiModel').value;
+    const testBtn = document.getElementById('setting-test-ai');
+
+    if (!apiKey?.trim()) {
+      this.setAiStatus('Enter an API key first.', true);
+      return;
+    }
+
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+    }
+    this.setAiStatus('Validating API key...');
+
+    try {
+      await this.persistAiSettings();
+      const result = await window.electronAPI.testAiConnection({ provider, apiKey, model });
+      if (result.ok) {
+        this.setAiStatus('Connection successful. Chat is ready.');
+      } else {
+        this.setAiStatus(result.error || 'Connection failed.', true);
+      }
+    } catch (err) {
+      this.setAiStatus(err.message || 'Connection failed.', true);
+    } finally {
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Connection';
+      }
+    }
+  },
+
+  async removeAiKey() {
+    if (!confirm('Remove the stored API key? Chat and AI features will require a new key.')) return;
+    document.getElementById('setting-aiApiKey').value = '';
+    await this.save('aiApiKey', '');
+    this.setAiStatus('API key removed.');
   },
 
   async save(key, value) {

@@ -1,0 +1,14 @@
+# MindSpace Storage — optional database drivers
+# Local and SQLite backends work with Python stdlib only.
+
+# MongoDB
+pymongo>=4.6
+
+# MySQL
+pymysql>=1.1
+
+# PostgreSQL
+psycopg2-binary>=2.9
+
+# SQL Server (also requires ODBC driver on the host)
+pyodbc>=5.0

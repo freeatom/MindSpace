@@ -256,6 +256,78 @@ const store = {
     return window.electronAPI.getAllArchives();
   },
 
+  // ─── Notes ───
+
+  async createNote(data) {
+    return window.electronAPI.createNote(data);
+  },
+
+  async updateNote(id, updates) {
+    return window.electronAPI.updateNote(id, updates);
+  },
+
+  async deleteNote(id) {
+    return window.electronAPI.deleteNote(id);
+  },
+
+  async getNote(id) {
+    return window.electronAPI.getNote(id);
+  },
+
+  async getAllNotes() {
+    return window.electronAPI.getAllNotes();
+  },
+
+  async searchNotes(query) {
+    return window.electronAPI.searchNotes(query);
+  },
+
+  // ─── Calendar ───
+
+  async createCalendarEvent(data) {
+    return window.electronAPI.createCalendarEvent(data);
+  },
+
+  async updateCalendarEvent(id, updates) {
+    return window.electronAPI.updateCalendarEvent(id, updates);
+  },
+
+  async deleteCalendarEvent(id) {
+    return window.electronAPI.deleteCalendarEvent(id);
+  },
+
+  async getCalendarEvent(id) {
+    return window.electronAPI.getCalendarEvent(id);
+  },
+
+  async getAllCalendarEvents() {
+    return window.electronAPI.getAllCalendarEvents();
+  },
+
+  async searchCalendarEvents(filters) {
+    return window.electronAPI.searchCalendarEvents(filters);
+  },
+
+  async getCalendarStats() {
+    return window.electronAPI.getCalendarStats();
+  },
+
+  async parseCalendarCommand(text) {
+    return window.electronAPI.parseCalendarCommand(text);
+  },
+
+  async isCalendarTrigger(text) {
+    return window.electronAPI.isCalendarTrigger(text);
+  },
+
+  async snoozeCalendarEvent(id, minutes) {
+    return window.electronAPI.snoozeCalendarEvent(id, minutes);
+  },
+
+  async dismissCalendarNotification(id) {
+    return window.electronAPI.dismissCalendarNotification(id);
+  },
+
   // ─── Tools ───
 
   async createTool(item) {

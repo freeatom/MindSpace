@@ -2,452 +2,795 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+    :root {
+      --bg: #FFFFFF;
+      --bg-surface: #F5F6FA;
+      --bg-hover: #ECEEF5;
+      --bg-input: #F0F1F7;
+      --accent: #5B52F0;
+      --accent-soft: rgba(91,82,240,0.10);
+      --accent-text: #3B35C0;
+      --text-main: #111827;
+      --text-sub: #374151;
+      --text-muted: #9CA3AF;
+      --border: #E5E7EB;
+      --border-focus: rgba(91,82,240,0.40);
+      --shadow: 0 6px 24px rgba(0,0,0,0.09);
+    }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: transparent;
       overflow: hidden;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      justify-content: flex-end;
+      width: 100vw;
       height: 100vh;
+      color: var(--text-main);
+      font-size: 13px;
       -webkit-app-region: no-drag;
     }
 
-    .spotlight-bar {
-      width: 580px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 14px 20px;
-      background: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(20px) saturate(180%);
-      border: 1px solid rgba(0,0,0,0.08);
-      border-radius: 16px;
-      position: relative; /* Crucial for absolute positioning of ghost */
-      box-shadow:
-        0 8px 32px rgba(0,0,0,0.12),
-        0 2px 8px rgba(0,0,0,0.06),
-        0 0 0 1px rgba(255,255,255,0.5) inset;
-      animation: spotlightIn 0.18s ease-out;
-    }
-
-    @keyframes spotlightIn {
-      from { opacity: 0; transform: scale(0.95) translateY(-8px); }
-      to { opacity: 1; transform: scale(1) translateY(0); }
-    }
-
-    .spotlight-icon {
-      flex-shrink: 0;
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #6366f1;
-      opacity: 0.7;
-    }
-
-    .spotlight-input {
-      flex: 1;
-      border: none;
-      outline: none;
-      background: transparent;
-      font-family: 'Inter', sans-serif;
-      font-size: 16px;
-      font-weight: 500;
-      color: #1e293b;
-      letter-spacing: -0.01em;
-    }
-
-    .spotlight-input::placeholder {
-      color: #94a3b8;
-      font-weight: 400;
-    }
-
-    .spotlight-hint {
-      flex-shrink: 0;
-      font-size: 11px;
-      color: #94a3b8;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .spotlight-hint kbd {
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      border-radius: 4px;
-      padding: 1px 5px;
-      font-family: 'Inter', sans-serif;
-      font-size: 10px;
-    }
-
-    .spotlight-type {
-      flex-shrink: 0;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 3px 8px;
-      border-radius: 6px;
-      background: #e0e1fc;
-      color: #6366f1;
-      transition: all 0.15s ease;
-    }
-
-    .spotlight-type.archive {
-      background: #fdf0e4;
-      color: #e8985e;
-    }
-
-    .spotlight-type.image {
-      background: #e0fcf5;
-      color: #10b981;
-    }
-
-    .spotlight-type.search {
-      background: #fce7f3;
-      color: #db2777; /* Pinkish color for Google Search */
-    }
-
-    .spotlight-ghost {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 60px; /* 20px padding + 28px icon + 12px gap = 60px */
-      width: calc(100% - 150px);
+    .spotlight-root { width: 100%; height: 100%; }
+    .spotlight-shell {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-right: none;
+      border-radius: 14px 0 0 14px;
+      box-shadow: -6px 0 28px rgba(0,0,0,0.1);
       height: 100%;
-      background: transparent;
-      border: none;
-      font-family: 'Inter', sans-serif;
-      font-size: 16px;
-      font-weight: 500;
-      letter-spacing: -0.01em;
-      color: #94a3b8; /* Ghost color */
-      pointer-events: none;
-      z-index: 0;
-      padding: 0;
-      margin: 0;
-    }
-
-    /* Make main input transparent background so ghost shows through */
-    .spotlight-input {
-      background: transparent;
-      position: relative;
-      z-index: 1;
-    }
-
-    /* Results Dropdown */
-    .spotlight-results {
-      max-height: 300px;
-      overflow-y: auto;
-      border-top: 1px solid #e2e8f0;
-      display: none;
-    }
-    .spotlight-results.visible {
-      display: block;
-    }
-    .result-item {
-      padding: 12px 16px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      justify-content: flex-start;
+      overflow: hidden;
+      animation: slideIn 0.18s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .brand { font-size: 13px; font-weight: 600; }
+    .model-pill {
+      display: flex; align-items: center; gap: 5px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 10px; font-weight: 500; color: var(--text-sub);
+    }
+    .model-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+    .model-pill .dot.offline { background: #ef4444; }
+    .model-pill svg { width: 10px; height: 10px; color: var(--text-muted); }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 3px;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .tab {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center; gap: 3px;
+      padding: 4px 3px;
+      border-radius: 6px;
+      font-size: 9.5px; font-weight: 500;
+      color: var(--text-main);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: none; border: none;
       cursor: pointer;
-      border-bottom: 1px solid #f1f5f9;
+      transition: background 0.14s, color 0.14s;
+      white-space: nowrap;
     }
-    .result-item.selected, .result-item:hover {
-      background: #f8fafc;
+    .tab svg { width: 10px; height: 10px; flex-shrink: 0; }
+    .tab:hover { background: var(--bg-hover); }
+    .tab.active { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+
+    /* Panels */
+    .panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
-    .result-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: #0f172a;
+    .panel.active { display: flex; }
+
+    /* Thought — compact, flush below tabs */
+    #panel-thought {
+      flex: 0 0 auto;
+      justify-content: flex-start;
+      padding: 8px 14px 10px;
+      gap: 6px;
     }
-    .result-path {
-      font-size: 11px;
-      color: #64748b;
+    .thought-capture {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .thought-input-wrap {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+    #thought-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 10px;
+      font-size: 12px;
+      outline: none;
+      color: var(--text-main);
+      box-sizing: border-box;
+    }
+    #thought-input:focus { border-color: var(--border-focus); }
+    .thought-ghost {
+      display: none;
+      position: absolute;
+      left: 10px; right: 10px;
+      top: 50%; transform: translateY(-50%);
+      pointer-events: none;
+      color: var(--text-muted);
+      font-size: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .thought-ghost.visible { display: block; }
+    .thought-type {
+      font-size: 8px; font-weight: 600; text-transform: uppercase;
+      padding: 3px 6px; border-radius: 5px;
+      background: var(--accent-soft); color: var(--accent-text);
+      flex-shrink: 0;
+    }
+    .thought-expand-btn {
+      font-size: 10px; color: var(--text-muted);
+      background: none; border: none; cursor: pointer;
+      text-align: left; padding: 0;
+      flex-shrink: 0;
+    }
+    .thought-expand-btn:hover { color: var(--accent-text); }
+    .thought-area {
+      flex: 0 0 auto;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      height: 56px;
+      color: var(--text-main);
+      display: none;
+    }
+    .thought-area.visible { display: block; }
+    .thought-area:focus { border-color: var(--border-focus); }
+
+    /* Chat */
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+    .msg-user {
+      align-self: flex-end;
+      max-width: 78%;
+      background: var(--accent);
+      color: white;
+      border-radius: 14px 14px 3px 14px;
+      padding: 8px 12px;
+      font-size: 12px; line-height: 1.5;
+      box-shadow: 0 2px 8px rgba(91,82,240,0.22);
+    }
+    .msg-ai-wrap { display: flex; flex-direction: column; gap: 4px; max-width: 88%; }
+    .msg-meta {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; color: var(--text-muted);
+    }
+    .model-icon {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #10a37f;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px; color: white; font-weight: 700;
+    }
+    .msg-ai {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: 3px 14px 14px 14px;
+      padding: 9px 12px;
+      font-size: 12px; line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .msg-ai.streaming::after {
+      content: '▋'; animation: blink 0.8s infinite; opacity: 0.5;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .msg-actions { display: flex; gap: 10px; padding-left: 2px; }
+    .msg-actions button {
+      background: none; border: none; padding: 0; cursor: pointer; color: var(--text-muted);
+    }
+    .msg-actions svg { width: 11px; height: 11px; display: block; }
+    .msg-actions button:hover { color: var(--accent); }
+
+    .chips {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      padding: 0 14px 10px; flex-shrink: 0;
+    }
+    .chips.hidden { display: none; }
+    .chip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 10px;
+      font-size: 10px; color: var(--text-sub);
+      cursor: pointer;
+    }
+    .chip:hover { border-color: var(--border-focus); color: var(--accent-text); }
+
+    .input-area {
+      border-top: 1px solid var(--border);
+      padding: 9px 14px;
+      flex-shrink: 0;
+    }
+    .input-box {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 11px;
+      font-size: 12px;
+      width: 100%; resize: none;
+      min-height: 36px; max-height: 100px;
+      outline: none; margin-bottom: 7px;
+      color: var(--text-main);
+    }
+    .input-box:focus { border-color: var(--border-focus); }
+    .input-box::placeholder { color: var(--text-muted); }
+    .input-row { display: flex; align-items: center; justify-content: space-between; }
+    .send-btn {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 7px rgba(91,82,240,0.28);
+    }
+    .send-btn:disabled { opacity: 0.45; }
+    .send-btn svg { width: 12px; height: 12px; stroke: white; fill: none; }
+
+    /* Search — DuckDuckGo + AI answers + embedded browser */
+    #panel-search {
+      flex: 1;
+      min-height: 0;
+    }
+    .search-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .search-top {
+      flex-shrink: 0;
+      padding: 10px 14px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    .search-split-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .search-split-container.layout-split {
+      flex-direction: row;
+    }
+    .search-results-wrap {
+      flex: 0 0 auto;
+      overflow-y: auto;
+      padding: 8px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 80px;
+    }
+    .search-split-container.browser-open .search-results-wrap {
+      flex: 0 0 var(--results-size, 32%);
+      max-height: none;
+    }
+    .search-split-container.layout-split.browser-open .search-results-wrap {
+      flex: 0 0 var(--results-size, 38%);
+      width: var(--results-size, 38%);
+      min-width: 120px;
+      max-width: 55%;
+    }
+    .search-split-container.layout-expanded.browser-open .search-results-wrap {
+      flex: 0 0 18%;
+      min-height: 60px;
+    }
+    .search-split-container.layout-fullscreen.browser-open .search-results-wrap {
+      display: none;
+    }
+    .panel-divider {
+      display: none;
+      flex-shrink: 0;
+      background: var(--border);
+      transition: background 0.15s;
+      z-index: 2;
+    }
+    .search-split-container:not(.browser-open) .search-results-wrap {
+      flex: 1;
+      max-height: none;
+    }
+    .search-split-container.browser-open .panel-divider {
+      display: block;
+    }
+    .search-split-container.browser-open:not(.layout-split) .panel-divider {
+      width: 100%;
+      height: 6px;
+      cursor: ns-resize;
+    }
+    .search-split-container.browser-open.layout-split .panel-divider {
+      width: 6px;
+      height: auto;
+      align-self: stretch;
+      cursor: ew-resize;
+    }
+    .panel-divider:hover, .panel-divider.dragging {
+      background: var(--accent);
+    }
+    .panel-divider::after {
+      content: '';
+      display: block;
+      margin: 1px auto;
+      background: var(--text-muted);
+      border-radius: 2px;
+      opacity: 0.5;
+    }
+    .search-split-container:not(.layout-split) .panel-divider::after {
+      width: 36px; height: 2px;
+    }
+    .search-split-container.layout-split .panel-divider::after {
+      width: 2px; height: 36px;
+    }
+    .search-split-container.layout-fullscreen .panel-divider {
+      display: none !important;
+    }
+    .ai-answer-card {
+      background: linear-gradient(135deg, rgba(91,82,240,0.08), rgba(91,82,240,0.03));
+      border: 1px solid var(--border-focus);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .ai-answer-label {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 700;
+      color: var(--accent-text);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .ai-answer-label .ai-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+    }
+    .ai-answer-text {
+      font-size: 12px; line-height: 1.55;
+      color: var(--text-main);
+    }
+    .ai-answer-text.collapsed {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .ai-answer-sources {
+      margin-top: 8px;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .ai-answer-sources.visible { display: flex; }
+    .ai-source-link {
+      font-size: 10px; color: var(--accent-text);
+      background: none; border: none; cursor: pointer;
+      text-align: left; padding: 0;
+      text-decoration: underline;
+    }
+    .ai-answer-toggle {
+      margin-top: 6px;
+      font-size: 10px; color: var(--text-muted);
+      background: none; border: none; cursor: pointer;
+      padding: 0;
+    }
+    .ai-answer-toggle:hover { color: var(--accent-text); }
+    .browser-section {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      border-top: 1px solid var(--border);
+    }
+    .browser-section.visible { display: flex; flex: 1; min-height: 180px; }
+    .search-split-container.layout-split .browser-section { border-top: none; border-left: 1px solid var(--border); }
+    .search-split-container.layout-fullscreen .browser-section { border: none; }
+    .browser-toolbar {
+      display: flex; align-items: center; gap: 4px;
+      padding: 6px 8px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .layout-modes {
+      display: flex;
+      gap: 2px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    .layout-mode-btn {
+      width: 24px !important;
+      height: 24px !important;
+      padding: 0 !important;
+    }
+    .layout-mode-btn.active {
+      background: var(--accent-soft) !important;
+      border-color: var(--accent) !important;
+      color: var(--accent-text) !important;
+    }
+    .restore-panels-btn {
+      display: none;
+      position: absolute;
+      top: 8px; left: 50%; transform: translateX(-50%);
+      z-index: 10;
+      padding: 5px 12px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(91,82,240,0.35);
+    }
+    .search-body.show-restore .restore-panels-btn { display: block; }
+    .browser-toolbar button {
+      width: 26px; height: 26px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-sub);
+    }
+    .browser-toolbar button:hover { background: var(--bg-hover); }
+    .browser-toolbar button:disabled { opacity: 0.35; cursor: default; }
+    .browser-toolbar button svg { width: 12px; height: 12px; }
+    .browser-url {
+      flex: 1;
+      font-size: 10px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 6px;
+    }
+    .browser-close {
+      font-size: 10px !important;
+      width: auto !important;
+      padding: 0 8px !important;
+      color: var(--accent-text) !important;
+    }
+    #search-webview {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      border: none;
+    }
+    .section-label {
+      font-size: 10px; font-weight: 600;
+      color: var(--text-sub);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .engine-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--accent-soft);
+      border: 1px solid var(--border-focus);
+      border-radius: 7px; padding: 6px 10px;
+      font-size: 10px; font-weight: 600; color: var(--accent-text);
+      width: fit-content;
+    }
+    .search-wrap {
+      display: flex; align-items: center; gap: 7px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 20px; padding: 0 12px; height: 33px;
+    }
+    .search-wrap:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(91,82,240,0.07);
+    }
+    .search-wrap svg { width: 12px; height: 12px; color: var(--text-muted); flex-shrink: 0; }
+    .search-wrap input {
+      background: none; border: none; outline: none;
+      font-size: 12px; width: 100%; color: var(--text-main);
+    }
+    .search-btn {
+      background: var(--accent); color: white;
+      font-size: 11px; font-weight: 600;
+      border-radius: 8px; border: none;
+      padding: 7px 14px; width: 100%; cursor: pointer;
+    }
+    .search-btn:hover { background: #4038CC; }
+    .search-results { display: flex; flex-direction: column; gap: 2px; }
+    .search-result {
+      padding: 8px 10px; border-radius: 7px; cursor: pointer;
+      border: none; background: none; text-align: left; width: 100%;
+    }
+    .search-result:hover { background: var(--bg-hover); }
+    .search-result.active { background: var(--accent-soft); }
+    .search-result-title { font-size: 12px; font-weight: 600; color: var(--text-main); margin-bottom: 2px; }
+    .search-result-snippet { font-size: 11px; color: var(--text-sub); line-height: 1.4; }
+    .search-result-url { font-size: 10px; color: var(--accent-text); margin-top: 2px; }
+    .recent-item {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 8px; border-radius: 7px;
+      font-size: 11px; color: var(--text-sub); cursor: pointer;
+      border: none; background: none; width: 100%; text-align: left;
+    }
+    .recent-item:hover { background: var(--bg-hover); }
+    .recent-item svg { width: 11px; height: 11px; color: var(--text-muted); }
+
+    /* Notes */
+    .notes-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px 8px; flex-shrink: 0; gap: 8px;
+    }
+    .notes-title { font-size: 11px; font-weight: 600; }
+    .notes-save-btn {
+      padding: 5px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .notes-save-btn:hover { opacity: 0.9; }
+    .notes-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .notes-name-wrap {
+      padding: 0 14px 8px;
+      flex-shrink: 0;
+    }
+    #notes-name-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 11px;
+      outline: none;
+      color: var(--text-main);
+    }
+    #notes-name-input:focus { border-color: var(--border-focus); }
+    .notes-status {
+      padding: 0 14px 6px;
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    #notes-textarea {
+      flex: 1;
+      margin: 0 14px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 11px;
+      font-size: 12px;
+      line-height: 1.7;
+      resize: none;
+      outline: none;
+      min-height: 0;
+      color: var(--text-main);
+    }
+    #notes-textarea:focus { border-color: var(--border-focus); }
+
+    /* File results (thought) */
+    .file-results {
+      max-height: 160px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      display: none;
+    }
+    .file-results.visible { display: block; }
+    .result-item {
+      padding: 8px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .result-item:hover, .result-item.selected { background: var(--bg-hover); }
+    .result-name { font-size: 12px; font-weight: 600; }
+    .result-path { font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .panel-status { padding: 12px; text-align: center; font-size: 11px; color: var(--text-muted); }
+
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 3px; }
   </style>
 </head>
 <body>
-  <div class="spotlight-bar">
-    <div class="spotlight-icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M12 2a7 7 0 0 1 0 14 7 7 0 0 1 0-14" fill="currentColor" opacity="0.15"/>
-      </svg>
-    </div>
-    <input
-      id="spotlight-ghost"
-      class="spotlight-ghost"
-      type="text"
-      disabled
-    />
-    <input
-      id="spotlight-input"
-      class="spotlight-input"
-      type="text"
-      placeholder="Capture a thought, URL, or paste an image..."
-      autofocus
-    />
-    <span id="spotlight-type" class="spotlight-type">Thought</span>
-    <span class="spotlight-hint"><kbd>Esc</kbd> close</span>
-  </div>
-  <div id="spotlight-results" class="spotlight-results"></div>
-
-  <script>
-    const input = document.getElementById('spotlight-input');
-    const ghost = document.getElementById('spotlight-ghost');
-    const typeLabel = document.getElementById('spotlight-type');
-    const resultsContainer = document.getElementById('spotlight-results');
-    let pastedImage = null;
-    let loadedWorkflows = [];
-    let currentWorkflowMatch = null;
-    let searchMode = false;
-    
-    // File search state
-    let fileResults = [];
-    let selectedFileIndex = -1;
-    let searchTimeout = null;
-
-    // Load workflows on startup
-    window.spotlightAPI.getWorkflows().then(wfs => {
-      loadedWorkflows = wfs;
-    });
-
-    // Detect content type as user types
-    input.addEventListener('input', () => {
-      const val = input.value;
-      const trimVal = val.trim();
-      currentWorkflowMatch = null;
-      ghost.value = '';
-
-      if (searchMode) {
-        typeLabel.textContent = 'Google Search';
-        typeLabel.className = 'spotlight-type search';
-        typeLabel.style.background = '';
-        typeLabel.style.color = '';
-        resultsContainer.classList.remove('visible');
-        return;
-      }
-
-      if (!val) {
-        typeLabel.textContent = 'Thought';
-        typeLabel.className = 'spotlight-type';
-        typeLabel.style.background = '';
-        typeLabel.style.color = '';
-        resultsContainer.classList.remove('visible');
-        return;
-      }
-
-      // Check for file search prefix
-      if (val.toLowerCase().startsWith('find: ')) {
-        typeLabel.textContent = 'Local File';
-        typeLabel.className = 'spotlight-type';
-        typeLabel.style.background = '#e0e7ff';
-        typeLabel.style.color = '#4338ca';
-        
-        const query = val.substring(6).trim();
-        clearTimeout(searchTimeout);
-        if (!query) {
-          resultsContainer.classList.remove('visible');
-          return;
-        }
-        
-        // Indicate loading
-        resultsContainer.innerHTML = '<div style="padding: 12px 16px; color: #64748b; font-size: 13px;">Searching hard drive...</div>';
-        resultsContainer.classList.add('visible');
-        
-        searchTimeout = setTimeout(async () => {
-          fileResults = await window.spotlightAPI.searchLocalFiles(query);
-          selectedFileIndex = -1;
-          renderResults();
-        }, 400);
-        return;
-      } else {
-        resultsContainer.classList.remove('visible');
-      }
-
-      // Check if it matches a workflow start
-      if (trimVal.length > 0) {
-        const match = loadedWorkflows.find(w => w.name.toLowerCase().startsWith(trimVal.toLowerCase()));
-        if (match) {
-          currentWorkflowMatch = match;
-          // Preserve exactly what they typed, plus the remainder of the match
-          const remainder = match.name.substring(val.length);
-          ghost.value = val + remainder;
-          
-          typeLabel.textContent = 'Workflow';
-          typeLabel.className = 'spotlight-type';
-          typeLabel.style.background = '#e2e8f0';
-          typeLabel.style.color = '#334155';
-          return;
-        }
-      }
-
-      if (val.startsWith('/')) {
-        typeLabel.textContent = 'Workflow';
-        typeLabel.className = 'spotlight-type';
-        typeLabel.style.background = '#e2e8f0';
-        typeLabel.style.color = '#334155';
-      } else if (/^https?:\/\//i.test(trimVal)) {
-        typeLabel.textContent = 'Archive';
-        typeLabel.className = 'spotlight-type archive';
-        typeLabel.style.background = '';
-        typeLabel.style.color = '';
-      } else {
-        typeLabel.textContent = 'Thought';
-        typeLabel.className = 'spotlight-type';
-        typeLabel.style.background = '';
-        typeLabel.style.color = '';
-      }
-    });
-
-    // Handle paste (images)
-    document.addEventListener('paste', (e) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const blob = item.getAsFile();
-          const reader = new FileReader();
-          reader.onload = () => {
-            pastedImage = reader.result;
-            typeLabel.textContent = 'Image';
-            typeLabel.className = 'spotlight-type image';
-            input.placeholder = '📷 Image captured — add a note or press Enter';
-          };
-          reader.readAsDataURL(blob);
-          return;
-        }
-      }
-    });
-
-    function renderResults() {
-      if (!fileResults || fileResults.length === 0) {
-        resultsContainer.innerHTML = '<div style="padding: 12px 16px; color: #64748b; font-size: 13px;">No files found.</div>';
-        return;
-      }
-      
-      resultsContainer.innerHTML = fileResults.map((f, i) => `
-        <div class="result-item ${i === selectedFileIndex ? 'selected' : ''}" data-index="${i}">
-          <div class="result-name">${f.Name}</div>
-          <div class="result-path">${f.Path}</div>
+  <div class="spotlight-root">
+    <div class="spotlight-shell">
+      <div class="topbar">
+        <span class="brand">MindSpace</span>
+        <div class="model-pill" id="model-pill">
+          <span class="dot" id="api-dot"></span>
+          <span id="model-label">Groq</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-      `).join('');
-      
-      // Allow click
-      resultsContainer.querySelectorAll('.result-item').forEach(el => {
-        el.addEventListener('click', () => {
-          const idx = parseInt(el.dataset.index);
-          window.spotlightAPI.openFile(fileResults[idx].Path);
-          window.spotlightAPI.close();
-        });
-      });
-    }
+      </div>
 
-    // Submit on Enter & arrow navigation
-    input.addEventListener('keydown', (e) => {
-      // Toggle Search Mode with Tab
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        searchMode = !searchMode;
-        // Trigger input event to re-evaluate the label
-        input.dispatchEvent(new Event('input'));
-        return;
-      }
+      <div class="tabs">
+        <button type="button" class="tab active" data-mode="thought">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Thought
+        </button>
+        <button type="button" class="tab" data-mode="chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          AI Chat
+        </button>
+        <button type="button" class="tab" data-mode="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Search
+        </button>
+        <button type="button" class="tab" data-mode="notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Notes
+        </button>
+      </div>
 
-      // Arrow navigation for file results
-      if (resultsContainer.classList.contains('visible') && fileResults.length > 0) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          selectedFileIndex = Math.min(selectedFileIndex + 1, fileResults.length - 1);
-          renderResults();
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          selectedFileIndex = Math.max(selectedFileIndex - 1, -1);
-          renderResults();
-          return;
-        }
-      }
+      <!-- Thought -->
+      <div class="panel active" id="panel-thought" data-mode="thought">
+        <div class="thought-capture">
+          <div class="thought-input-wrap">
+            <input type="text" id="thought-input" placeholder="Capture a thought, URL, or paste an image…" autocomplete="off" />
+            <span id="thought-ghost" class="thought-ghost"></span>
+          </div>
+          <span class="thought-type" id="thought-type">Thought</span>
+        </div>
+        <div id="file-results" class="file-results"></div>
+        <button type="button" class="thought-expand-btn" id="thought-expand">+ Add notes (optional)</button>
+        <textarea class="thought-area" id="thought-area" placeholder="Optional notes for your thought…"></textarea>
+      </div>
 
-      // Autocomplete / execute ghost text / execute file
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        
-        const val = input.value.trim();
+      <!-- AI Chat -->
+      <div class="panel" id="panel-chat" data-mode="chat">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chips" id="chat-chips">
+          <button type="button" class="chip" data-prompt="Summarize this for me in bullet points: ">Summarize a webpage</button>
+          <button type="button" class="chip" data-prompt="Help me write: ">Help me write</button>
+          <button type="button" class="chip" data-prompt="Explain this topic in simple terms: ">Explain a topic</button>
+        </div>
+        <div class="input-area">
+          <textarea class="input-box" id="chat-input" placeholder="Ask anything…" rows="1"></textarea>
+          <div class="input-row">
+            <span></span>
+            <button type="button" class="send-btn" id="chat-send" title="Send">
+              <svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
 
-        // If in Google Search mode
-        if (searchMode && val) {
-          const searchUrl = 'https://www.google.com/search?q=' + encodeURIComponent(val);
-          window.spotlightAPI.openUrl(searchUrl);
-          window.spotlightAPI.close();
-          return;
-        }
+      <!-- Search (DuckDuckGo + AI + embedded browser) -->
+      <div class="panel" id="panel-search" data-mode="search">
+        <div class="search-panel">
+          <div class="search-top">
+            <div class="engine-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              DuckDuckGo
+            </div>
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="search-input" placeholder="Search the web…" />
+            </div>
+            <button type="button" class="search-btn" id="search-submit">Search</button>
+          </div>
+          <div class="search-body" id="search-body">
+            <button type="button" class="restore-panels-btn" id="restore-panels-btn">Show search &amp; AI</button>
+            <div class="search-split-container" id="search-split-container">
+              <div class="search-results-wrap" id="search-results-wrap">
+                <div id="ai-answer-container"></div>
+                <div class="search-results" id="search-results"></div>
+                <div class="section-label">Recent</div>
+                <div id="recent-list"></div>
+              </div>
+              <div class="panel-divider" id="panel-divider" title="Drag to resize panels"></div>
+              <div class="browser-section" id="browser-section">
+                <div class="browser-toolbar">
+                  <button type="button" id="browser-back" title="Back" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <button type="button" id="browser-forward" title="Forward" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                  <button type="button" id="browser-reload" title="Reload">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  </button>
+                  <span class="browser-url" id="browser-url"></span>
+                  <button type="button" id="browser-external" title="Open in system browser">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </button>
+                  <div class="layout-modes">
+                    <button type="button" class="layout-mode-btn" data-layout="stacked" title="Stacked view">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="8" rx="1"/><rect x="3" y="13" width="18" height="8" rx="1"/></svg>
+                    </button>
+                    <button type="button" class="layout-mode-btn" data-layout="split" title="Split view">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>
+                    </button>
+                    <button type="button" class="layout-mode-btn" data-layout="expanded" title="Expanded web view">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="5" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>
+                    </button>
+                    <button type="button" class="layout-mode-btn" data-layout="fullscreen" title="Full-screen web view">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                    </button>
+                  </div>
+                  <button type="button" class="browser-close" id="browser-close">Close</button>
+                </div>
+                <webview id="search-webview" src="about:blank" allowpopups partition="persist:spotlight" webpreferences="contextIsolation=yes, javascript=yes"></webview>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        // If searching files and one is selected
-        if (resultsContainer.classList.contains('visible') && selectedFileIndex >= 0 && fileResults[selectedFileIndex]) {
-          window.spotlightAPI.openFile(fileResults[selectedFileIndex].Path);
-          window.spotlightAPI.close();
-          return;
-        }
+      <!-- Notes -->
+      <div class="panel" id="panel-notes" data-mode="notes">
+        <div class="notes-header">
+          <span class="notes-title">Quick Notes</span>
+          <button type="button" class="notes-save-btn" id="notes-save-btn">Save</button>
+        </div>
+        <div class="notes-name-wrap">
+          <input type="text" id="notes-name-input" placeholder="Note name (required to save)..." />
+        </div>
+        <div class="notes-status" id="notes-status">Draft auto-saved</div>
+        <textarea id="notes-textarea" placeholder="Write notes here — draft auto-saves. Use Save to store with a name."></textarea>
+      </div>
+    </div>
+  </div>
 
-        // If there's an active workflow match from autocomplete, execute it instantly!
-        if (currentWorkflowMatch) {
-          window.spotlightAPI.executeWorkflow(currentWorkflowMatch.name);
-          window.spotlightAPI.close();
-          return;
-        }
-
-        if (!val && !pastedImage) return;
-
-        if (val.startsWith('/')) {
-          const workflowName = val.substring(1).trim();
-          window.spotlightAPI.executeWorkflow(workflowName);
-        } else {
-          const isUrl = /^https?:\/\//i.test(val);
-
-          if (pastedImage || isUrl) {
-            // Save as archive
-            window.spotlightAPI.saveArchive({
-              title: val || 'Quick Capture',
-              content: val,
-              images: pastedImage ? [pastedImage] : [],
-              tags: ['spotlight'],
-            });
-          } else {
-            // Save as thought
-            window.spotlightAPI.saveThought({
-              content: val,
-              priority: 'medium',
-              persistence: 'persistent',
-              tags: ['spotlight'],
-            });
-          }
-        }
-
-        window.spotlightAPI.close();
-      }
-
-      if (e.key === 'Escape') {
-        window.spotlightAPI.close();
-      }
-    });
-
-    // Auto-focus
-    window.addEventListener('focus', () => input.focus());
-  </script>
+  <script src="js/spotlight-app.js"></script>
 </body>
 </html>

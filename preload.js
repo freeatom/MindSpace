@@ -398,6 +398,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // AI Command Palette
   aiQuery: (opts) => ipcRenderer.invoke('ai-query', opts),
+  testAiConnection: (opts) => ipcRenderer.invoke('ai-test-connection', opts),
   runShellCommand: (cmd) => ipcRenderer.invoke('run-shell-command', cmd),
+
+  // Notes repository
+  createNote: (data) => ipcRenderer.invoke('notes-create', data),
+  updateNote: (id, updates) => ipcRenderer.invoke('notes-update', id, updates),
+  deleteNote: (id) => ipcRenderer.invoke('notes-delete', id),
+  getNote: (id) => ipcRenderer.invoke('notes-get', id),
+  getAllNotes: () => ipcRenderer.invoke('notes-get-all'),
+  searchNotes: (query) => ipcRenderer.invoke('notes-search', query),
+
+  // Calendar
+  createCalendarEvent: (data) => ipcRenderer.invoke('calendar-create', data),
+  updateCalendarEvent: (id, updates) => ipcRenderer.invoke('calendar-update', id, updates),
+  deleteCalendarEvent: (id) => ipcRenderer.invoke('calendar-delete', id),
+  getCalendarEvent: (id) => ipcRenderer.invoke('calendar-get', id),
+  getAllCalendarEvents: () => ipcRenderer.invoke('calendar-get-all'),
+  searchCalendarEvents: (filters) => ipcRenderer.invoke('calendar-search', filters),
+  getCalendarStats: () => ipcRenderer.invoke('calendar-stats'),
+  parseCalendarCommand: (text) => ipcRenderer.invoke('calendar-parse', text),
+  isCalendarTrigger: (text) => ipcRenderer.invoke('calendar-is-trigger', text),
+  snoozeCalendarEvent: (id, minutes) => ipcRenderer.invoke('calendar-snooze', id, minutes),
+  dismissCalendarNotification: (id) => ipcRenderer.invoke('calendar-dismiss-notification', id),
+  onCalendarNotification: (callback) => ipcRenderer.on('calendar-notification', (e, data) => callback(data)),
+  onCalendarOpenEvent: (callback) => ipcRenderer.on('calendar-open-event', (e, data) => callback(data)),
+  onCalendarOpenEventModal: (callback) => ipcRenderer.on('calendar-open-event-modal', (e, data) => callback(data)),
 });
 

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f7f4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>MindSpace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+</head>
+<body>
+  
+  <!-- ─── Auth Screen ─── -->
+  <section id="auth-screen" class="screen">
+    <div class="auth-container">
+      <div class="auth-orb"></div>
+      <div class="auth-card">
+        <div class="auth-logo">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 2a7 7 0 0 1 0 14 7 7 0 0 1 0-14" fill="var(--accent-primary)" opacity="0.12" />
+            <circle cx="12" cy="12" r="3" fill="var(--accent-primary)" opacity="0.25" />
+          </svg>
+        </div>
+        <h1 class="auth-title">MindSpace</h1>
+        <p class="auth-subtitle" id="auth-subtitle">Enter your password to unlock</p>
+        <form id="auth-form" autocomplete="off">
+          <div class="auth-input-wrapper">
+            <input type="password" id="auth-password" class="auth-input" placeholder="Password" autofocus autocomplete="new-password" />
+            <button type="button" id="auth-toggle-vis" class="auth-toggle-vis" aria-label="Toggle password visibility">
+              <svg id="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+          <p id="auth-error" class="auth-error"></p>
+          <button type="submit" id="auth-submit" class="auth-btn">Unlock</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Main App Screen ─── -->
+  <section id="app-screen" class="screen" style="display:none;">
+    
+    <!-- Top Header Bar -->
+    <header id="app-header">
+      <div class="header-left">
+        <h1 class="app-title">MindSpace</h1>
+      </div>
+      <div class="header-right">
+        <button id="header-search-btn" class="header-btn" aria-label="Search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+        <button id="header-lock-btn" class="header-btn" aria-label="Lock">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Status Bar (Priority Counts) -->
+    <div id="priority-status-bar" class="priority-status-bar">
+      <div class="status-badge status-high"><span class="status-dot"></span><span id="count-high">0</span> High</div>
+      <div class="status-badge status-medium"><span class="status-dot"></span><span id="count-medium">0</span> Medium</div>
+      <div class="status-badge status-low"><span class="status-dot"></span><span id="count-low">0</span> Low</div>
+    </div>
+
+    <!-- Content Views -->
+    <main id="main-content">
+      
+      <!-- Canvas View -->
+      <div id="canvas-view" class="content-view active">
+        <div class="view-header">
+          <h2 class="view-title">Canvas</h2>
+          <div id="tag-filters" class="tag-filters"></div>
+        </div>
+        <div class="canvas-container">
+          <div id="canvas-content" class="canvas-content">
+            <div class="priority-zone priority-zone-high" data-priority="high">
+              <span class="zone-label">🔴 High Priority</span>
+            </div>
+            <div class="priority-zone priority-zone-medium" data-priority="medium">
+              <span class="zone-label">🟡 Medium Priority</span>
+            </div>
+            <div class="priority-zone priority-zone-low" data-priority="low">
+              <span class="zone-label">🟢 Low Priority</span>
+            </div>
+            <!-- Thought cards added dynamically -->
+          </div>
+          <div id="canvas-empty" class="view-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <p>No thoughts yet</p>
+            <p>Tap the + button to add your first thought</p>
+          </div>
+        </div>
+        
+        <!-- Finished Stack -->
+        <div id="finished-stack" class="finished-stack">
+          <button id="finished-toggle" class="finished-toggle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+            <span>Finished</span>
+            <span id="finished-count" class="finished-count">0</span>
+          </button>
+          <div id="finished-list" class="finished-list"></div>
+        </div>
+      </div>
+
+      <!-- Timeline View -->
+      <div id="timeline-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Timeline</h2>
+        </div>
+        <div id="timeline-container" class="timeline-container">
+          <div id="timeline-content" class="timeline-content"></div>
+          <div id="timeline-empty" class="view-empty">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1">
+              <line x1="12" y1="2" x2="12" y2="22" />
+              <circle cx="12" cy="6" r="2.5" fill="currentColor" opacity="0.2" />
+              <circle cx="12" cy="12" r="2.5" fill="currentColor" opacity="0.2" />
+              <circle cx="12" cy="18" r="2.5" fill="currentColor" opacity="0.2" />
+            </svg>
+            <p>No thoughts yet</p>
+            <p>Tap the + button to add your first thought</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes View -->
+      <div id="notes-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Notes</h2>
+          <button class="view-add-btn" id="notes-add-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="notes-toolbar">
+          <input type="text" id="notes-search" class="notes-search" placeholder="Search notes..." />
+        </div>
+        <div id="notes-list" class="notes-list"></div>
+        <div id="notes-empty" class="view-empty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <p>No notes yet</p>
+          <p>Tap + to create your first note</p>
+        </div>
+      </div>
+
+      <!-- Calendar View -->
+      <div id="calendar-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Calendar</h2>
+          <button class="view-add-btn" id="cal-add-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="cal-view-tabs">
+          <button type="button" class="cal-view-tab active" data-cal-view="dashboard">Dashboard</button>
+          <button type="button" class="cal-view-tab" data-cal-view="month">Month</button>
+        </div>
+        <div class="cal-panel active" data-cal-panel="dashboard">
+          <div class="cal-stats-row">
+            <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-total">0</div><div class="cal-stat-label">This Month</div></div>
+            <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-upcoming">0</div><div class="cal-stat-label">Upcoming</div></div>
+            <div class="cal-stat-card"><div class="cal-stat-value" id="cal-stat-completed">0</div><div class="cal-stat-label">Done</div></div>
+          </div>
+          <div class="cal-dashboard-grid">
+            <div class="cal-dash-section"><h4>Today</h4><div id="cal-list-today"></div></div>
+            <div class="cal-dash-section"><h4>Upcoming</h4><div id="cal-list-upcoming"></div></div>
+            <div class="cal-dash-section"><h4>Overdue</h4><div id="cal-list-overdue"></div></div>
+          </div>
+        </div>
+        <div class="cal-panel" data-cal-panel="month">
+          <div class="cal-month-grid" id="cal-month-grid"></div>
+        </div>
+      </div>
+
+      <!-- Archives View -->
+      <div id="archives-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Archives</h2>
+          <button class="view-add-btn" id="archives-add-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div id="archives-grid" class="archives-grid"></div>
+        <div id="archives-empty" class="view-empty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1">
+            <path d="M21 8v13H3V8"/>
+            <path d="M1 3h22v5H1z"/>
+            <path d="M10 12h4"/>
+          </svg>
+          <p>No archives yet</p>
+          <p>Tap + to save something for later</p>
+        </div>
+      </div>
+
+      <!-- Tools View -->
+      <div id="tools-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Tools</h2>
+          <button class="view-add-btn" id="tools-add-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div id="tools-grid" class="tools-grid"></div>
+        <div id="tools-empty" class="view-empty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+          </svg>
+          <p>No tools yet</p>
+          <p>Tap + to import a project</p>
+        </div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="settings-view" class="content-view">
+        <div class="view-header">
+          <h2 class="view-title">Settings</h2>
+        </div>
+        <div class="settings-container">
+          <div class="settings-section">
+            <h3 class="settings-section-title">General</h3>
+            <div class="setting-row">
+              <span class="setting-label">Default Priority</span>
+              <select id="setting-defaultPriority" class="setting-select">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="settings-section">
+            <h3 class="settings-section-title">AI Assistant</h3>
+            <p class="settings-desc">Configure your AI provider for chat and auto-tagging.</p>
+            <div class="settings-group">
+              <label class="setting-label">Provider</label>
+              <select id="setting-aiProvider" class="setting-select">
+                <option value="groq">Groq (Recommended)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </div>
+            <div class="settings-group">
+              <label class="setting-label">API Key</label>
+              <input type="password" id="setting-aiApiKey" class="setting-input" placeholder="Enter your API key" />
+            </div>
+            <div class="settings-group">
+              <label class="setting-label">Model (Optional)</label>
+              <input type="text" id="setting-aiModel" class="setting-input" placeholder="e.g. llama-3.3-70b-versatile" />
+            </div>
+            <div class="settings-actions">
+              <button id="setting-save-ai" class="btn btn-primary">Save AI Settings</button>
+              <button id="setting-test-ai" class="btn btn-outline">Test Connection</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3 class="settings-section-title">Appearance</h3>
+            <div class="setting-row">
+              <span class="setting-label">Animations</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-animationsEnabled" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3 class="settings-section-title">Security</h3>
+            <div class="setting-row">
+              <span class="setting-label">Change Password</span>
+              <button id="setting-change-password" class="btn btn-outline">Change</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Floating Action Button (FAB) -->
+    <button id="fab-add" class="fab" aria-label="Add new thought">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+    </button>
+
+    <!-- Bottom Navigation Bar -->
+    <nav id="bottom-nav" class="bottom-nav">
+      <button class="nav-item active" data-view="canvas">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+        <span>Canvas</span>
+      </button>
+      <button class="nav-item" data-view="timeline">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="2" x2="12" y2="22" />
+          <circle cx="12" cy="6" r="2" fill="currentColor" opacity="0.3" />
+          <circle cx="12" cy="12" r="2" fill="currentColor" opacity="0.3" />
+          <circle cx="12" cy="18" r="2" fill="currentColor" opacity="0.3" />
+        </svg>
+        <span>Timeline</span>
+      </button>
+      <button class="nav-item" data-view="notes">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span>Notes</span>
+      </button>
+      <button class="nav-item" data-view="calendar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        <span>Calendar</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+  </section>
+
+  <!-- ─── Quick Add Modal ─── -->
+  <div id="quickadd-overlay" class="modal-overlay">
+    <div class="quickadd-modal">
+      <div class="quickadd-header">
+        <h3>What's on your mind?</h3>
+        <button id="quickadd-close" class="modal-close" aria-label="Close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <textarea id="quickadd-input" class="quickadd-input" placeholder="Type your thought..." rows="3" autofocus></textarea>
+      <div class="quickadd-options">
+        <div class="quickadd-row">
+          <div class="quickadd-priority">
+            <span class="option-label">Priority</span>
+            <div class="priority-buttons">
+              <button class="priority-btn priority-btn-high" data-priority="high" title="High">H</button>
+              <button class="priority-btn priority-btn-medium active" data-priority="medium" title="Medium">M</button>
+              <button class="priority-btn priority-btn-low" data-priority="low" title="Low">L</button>
+            </div>
+          </div>
+          <div class="quickadd-persistence">
+            <span class="option-label">Duration</span>
+            <div class="persistence-buttons">
+              <button class="persist-btn active" data-persist="persistent">♾️ Keep</button>
+              <button class="persist-btn" data-persist="today">📅 Today</button>
+            </div>
+          </div>
+        </div>
+        <div class="quickadd-tags">
+          <span class="option-label">Tags</span>
+          <div id="quickadd-tag-list" class="tag-list"></div>
+          <div class="tag-create-wrapper">
+            <input type="text" id="quickadd-new-tag" class="tag-create-input" placeholder="+ new tag" />
+          </div>
+        </div>
+      </div>
+      <div class="quickadd-actions">
+        <button id="quickadd-save" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Save
+        </button>
+        <button id="quickadd-ai" class="btn btn-ai-autotag">✨ AI Auto-Tag</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Note Modal ─── -->
+  <div id="notes-modal-overlay" class="modal-overlay">
+    <div class="notes-modal">
+      <div class="notes-modal-header">
+        <h3 id="notes-modal-heading">New Note</h3>
+        <button id="notes-modal-close" class="modal-close" aria-label="Close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div>
+        <label class="notes-field-label">Note name</label>
+        <input type="text" id="notes-modal-name" class="notes-field-input" placeholder="Note title" />
+      </div>
+      <div>
+        <label class="notes-field-label">Content</label>
+        <textarea id="notes-modal-content" class="notes-field-textarea" placeholder="Write your note..."></textarea>
+      </div>
+      <div class="notes-modal-actions">
+        <button id="notes-modal-delete" class="btn btn-danger" style="display:none;">Delete</button>
+        <button id="notes-modal-save" class="btn btn-primary">Save Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Calendar Event Modal ─── -->
+  <div id="cal-modal-overlay" class="modal-overlay">
+    <div class="cal-modal">
+      <div class="cal-modal-header">
+        <h3 id="cal-modal-heading">New Event</h3>
+        <button id="cal-modal-close" class="modal-close" aria-label="Close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="cal-field">
+        <label for="cal-event-title">Event Title</label>
+        <input type="text" id="cal-event-title" placeholder="Event name" />
+      </div>
+      <div class="cal-form-row">
+        <div class="cal-field">
+          <label for="cal-event-date">Date</label>
+          <input type="date" id="cal-event-date" />
+        </div>
+        <div class="cal-field">
+          <label for="cal-event-time">Time</label>
+          <input type="time" id="cal-event-time" value="09:00" />
+        </div>
+      </div>
+      <div class="cal-field">
+        <label for="cal-event-desc">Description</label>
+        <textarea id="cal-event-desc" placeholder="Optional details..."></textarea>
+      </div>
+      <div class="cal-form-row">
+        <div class="cal-field">
+          <label for="cal-event-category">Category</label>
+          <select id="cal-event-category">
+            <option value="meeting">Meeting</option>
+            <option value="task">Task</option>
+            <option value="reminder">Reminder</option>
+            <option value="personal">Personal</option>
+            <option value="work">Work</option>
+          </select>
+        </div>
+        <div class="cal-field">
+          <label for="cal-event-priority">Priority</label>
+          <select id="cal-event-priority">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+      </div>
+      <div class="cal-modal-actions">
+        <button id="cal-modal-delete" class="btn btn-danger" style="display:none;">Delete</button>
+        <button id="cal-modal-save" class="btn btn-primary">Save Event</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Search Modal ─── -->
+  <div id="search-overlay" class="modal-overlay">
+    <div class="search-modal">
+      <div class="search-header">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input type="text" id="search-input" class="search-input" placeholder="Search thoughts..." autofocus />
+        <button id="search-close" class="modal-close" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div id="search-results" class="search-results"></div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
