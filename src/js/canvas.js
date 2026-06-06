@@ -50,10 +50,25 @@ const Canvas = {
     const high = document.querySelector('.priority-zone-high');
     const medium = document.querySelector('.priority-zone-medium');
     const low = document.querySelector('.priority-zone-low');
+
+    let hw = high ? high.offsetWidth : 0;
+    let mw = medium ? medium.offsetWidth : 0;
+    let lw = low ? low.offsetWidth : 0;
+
+    if (hw === 0) {
+      const vw = (window.innerWidth > 800) ? window.innerWidth : (window.screen && window.screen.availWidth ? window.screen.availWidth : 1200);
+      const width31 = (vw * 0.31) - 20;
+      return {
+        high:   { left: 24, right: 24 + width31 },
+        medium: { left: (vw * 0.31) + 24, right: (vw * 0.31) + 24 + width31 },
+        low:    { left: (vw * 0.62) + 24, right: (vw * 0.62) + 24 + width31 }
+      };
+    }
+
     return {
-      high:   { left: high.offsetLeft,   right: high.offsetLeft + high.offsetWidth },
-      medium: { left: medium.offsetLeft, right: medium.offsetLeft + medium.offsetWidth },
-      low:    { left: low.offsetLeft,    right: low.offsetLeft + low.offsetWidth },
+      high:   { left: high.offsetLeft,   right: high.offsetLeft + hw },
+      medium: { left: medium.offsetLeft, right: medium.offsetLeft + mw },
+      low:    { left: low.offsetLeft,    right: low.offsetLeft + lw },
     };
   },
 

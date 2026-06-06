@@ -163,6 +163,7 @@
           selectedTags.push(name);
         }
         renderTagSelector();
+        thoughtInput?.focus();
       });
     });
   }
@@ -356,6 +357,7 @@
     thoughtInput.value = '';
     pastedImage = null;
     thoughtType.textContent = 'Thought';
+    thoughtInput.placeholder = 'Capture a thought, task, idea, or paste an image…';
     selectedPriority = 'medium';
     selectedPersistence = 'persistent';
     selectedTags = [];
@@ -373,6 +375,7 @@
 
     renderTagSelector();
     if (thoughtStatus) thoughtStatus.textContent = '';
+    thoughtInput?.focus();
   });
 
   // Priority buttons
@@ -381,6 +384,7 @@
       document.querySelectorAll('.sl-priority-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       selectedPriority = btn.dataset.priority;
+      thoughtInput?.focus();
     });
   });
 
@@ -394,6 +398,9 @@
       // Show calendar hint for time-bound thoughts
       const showCal = btn.dataset.persist === 'today' || btn.dataset.persist === 'until_date';
       slCalendarHint?.classList.toggle('visible', showCal);
+      if (btn.dataset.persist !== 'until_date') {
+        thoughtInput?.focus();
+      }
     });
   });
 
@@ -532,6 +539,12 @@
           images: pastedImage ? [pastedImage] : [],
           tags: selectedTags.length ? selectedTags : ['spotlight'],
         });
+        
+        thoughtInput.value = '';
+        pastedImage = null;
+        if (thoughtType) thoughtType.textContent = 'Thought';
+        thoughtInput.placeholder = 'Capture a thought, task, idea, or paste an image…';
+
         window.spotlightAPI.close();
         return;
       }
@@ -577,6 +590,7 @@
       thoughtInput.value = '';
       pastedImage = null;
       if (thoughtType) thoughtType.textContent = 'Thought';
+      thoughtInput.placeholder = 'Capture a thought, task, idea, or paste an image…';
 
       window.spotlightAPI.close();
     } catch (err) {
