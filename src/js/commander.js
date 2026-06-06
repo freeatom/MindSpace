@@ -336,7 +336,7 @@ The user's OS is Windows. Use PowerShell commands.`;
 
   getAIConfig() {
     const provider = Settings.cache.aiProvider;
-    const apiKey = Settings.cache.aiApiKey;
+    const apiKey = Settings.getActiveChatApiKey();
     const model = Settings.cache.aiModel;
     if (!provider || !apiKey) return null;
     return { provider, apiKey, model: model || this.getDefaultModel(provider) };

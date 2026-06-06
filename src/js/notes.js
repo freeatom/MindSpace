@@ -37,6 +37,13 @@ const Notes = {
     });
     document.getElementById('notes-modal-save').addEventListener('click', () => this.save());
     document.getElementById('notes-modal-delete').addEventListener('click', () => this.deleteCurrent());
+    
+    const editBtn = document.getElementById('notes-modal-edit');
+    if(editBtn) {
+      editBtn.addEventListener('click', () => {
+        this.openModal(this.editingId, 'edit');
+      });
+    }
 
     ['notes-modal-name', 'notes-modal-content'].forEach((id) => {
       document.getElementById(id).addEventListener('keydown', (e) => {
@@ -136,8 +143,7 @@ const Notes = {
   },
 
   createRow(note, index) {
-    const row = document.createElement('button');
-    row.type = 'button';
+    const row = document.createElement('div');
     row.className = 'notes-row';
     row.style.animationDelay = `${index * 0.03}s`;
 
@@ -151,7 +157,7 @@ const Notes = {
 
     const preview = document.createElement('span');
     preview.className = 'notes-row-preview';
-    preview.textContent = (note.content || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    preview.textContent = note.content || '';
     main.appendChild(preview);
 
     row.appendChild(main);
@@ -164,24 +170,70 @@ const Notes = {
     `;
     row.appendChild(meta);
 
-    row.addEventListener('click', () => this.openModal(note._id));
+    // Hover actions
+    const actions = document.createElement('div');
+    actions.className = 'notes-card-actions';
+    
+    const editBtn = document.createElement('button');
+    editBtn.className = 'notes-action-btn edit';
+    editBtn.title = 'Edit';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openModal(note._id, 'edit');
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'notes-action-btn delete';
+    delBtn.title = 'Delete';
+    delBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.editingId = note._id;
+      this.deleteCurrent();
+    });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+
+    row.addEventListener('click', () => this.openModal(note._id, 'view'));
     return row;
   },
 
-  openModal(id = null) {
+  openModal(id = null, mode = 'create') {
     this.editingId = id;
     const overlay = document.getElementById('notes-modal-overlay');
+    const modal = overlay.querySelector('.notes-modal');
     const heading = document.getElementById('notes-modal-heading');
     const nameInput = document.getElementById('notes-modal-name');
     const contentInput = document.getElementById('notes-modal-content');
     const datesEl = document.getElementById('notes-modal-dates');
     const deleteBtn = document.getElementById('notes-modal-delete');
+    const editBtn = document.getElementById('notes-modal-edit');
+    const saveBtn = document.getElementById('notes-modal-save');
     const saveText = document.getElementById('notes-modal-save-text');
+
+    if (mode === 'view') {
+      modal.classList.add('view-mode');
+      nameInput.readOnly = true;
+      contentInput.readOnly = true;
+      editBtn.style.display = '';
+      saveBtn.style.display = 'none';
+      deleteBtn.style.display = 'none';
+    } else {
+      modal.classList.remove('view-mode');
+      nameInput.readOnly = false;
+      contentInput.readOnly = false;
+      if (editBtn) editBtn.style.display = 'none';
+      saveBtn.style.display = '';
+      deleteBtn.style.display = id ? '' : 'none';
+    }
 
     if (id) {
       const note = this.items.find((n) => n._id === id);
       if (!note) return;
-      heading.textContent = 'Edit Note';
+      heading.textContent = mode === 'view' ? 'Note Details' : 'Edit Note';
       nameInput.value = note.name || '';
       contentInput.value = note.content || '';
       datesEl.innerHTML = `
@@ -189,19 +241,19 @@ const Notes = {
         <span>Modified: ${Utils.formatTimestamp(note.updatedAt)}</span>
       `;
       datesEl.style.display = '';
-      deleteBtn.style.display = '';
       saveText.textContent = 'Save Changes';
     } else {
       heading.textContent = 'New Note';
       nameInput.value = '';
       contentInput.value = '';
       datesEl.style.display = 'none';
-      deleteBtn.style.display = 'none';
       saveText.textContent = 'Save Note';
     }
 
     overlay.classList.add('visible');
-    nameInput.focus();
+    if (mode !== 'view') {
+      nameInput.focus();
+    }
   },
 
   closeModal() {

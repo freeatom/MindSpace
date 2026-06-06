@@ -26,26 +26,26 @@
   flex: 1;
   max-width: 360px;
   padding: 10px 14px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   font-size: 13px;
-  color: var(--text-main);
+  color: var(--text-primary);
   outline: none;
   transition: border-color 0.15s;
 }
 
 .notes-search:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-primary);
 }
 
 .notes-date-filter {
   padding: 9px 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   font-size: 12px;
-  color: var(--text-main);
+  color: var(--text-primary);
   outline: none;
   cursor: pointer;
 }
@@ -55,7 +55,7 @@
   align-items: center;
   gap: 6px;
   padding: 9px 16px;
-  background: var(--accent);
+  background: var(--accent-primary);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -74,17 +74,15 @@
 .notes-list {
   flex: 1;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
   padding-right: 4px;
+  padding-bottom: 24px;
+  column-count: auto;
+  column-width: 260px;
+  column-gap: 16px;
+  display: block;
 }
 
-.notes-date-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* Group container no longer used, headers are direct children */
 
 .notes-date-header {
   font-size: 11px;
@@ -92,29 +90,33 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
-  padding: 4px 2px;
+  padding: 16px 2px 8px 2px;
+  column-span: all;
+  break-inside: avoid;
 }
 
 .notes-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   width: 100%;
   text-align: left;
-  padding: 14px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
   animation: fadeIn 0.25s ease both;
+  break-inside: avoid;
+  margin-bottom: 16px;
+  position: relative;
 }
 
 .notes-row:hover {
-  border-color: var(--accent);
-  background: var(--bg-hover);
-  transform: translateX(2px);
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  transform: translateY(-2px);
 }
 
 .notes-row-main {
@@ -128,29 +130,34 @@
 .notes-row-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--text-primary);
 }
 
 .notes-row-preview {
   font-size: 12px;
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  line-clamp: 10;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.5;
 }
 
 .notes-row-meta {
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   gap: 2px;
   font-size: 11px;
   color: var(--text-muted);
 }
 
 .notes-modified {
-  color: var(--accent);
+  color: var(--accent-primary);
 }
 
 .notes-empty {
@@ -176,7 +183,7 @@
 .notes-empty p:first-of-type {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--text-primary);
 }
 
 .notes-empty p:last-of-type {
@@ -194,8 +201,8 @@
   transition: transform var(--transition-base);
   max-width: 92vw;
   max-height: 85vh;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
   display: flex;
@@ -230,35 +237,100 @@
 .notes-field-input {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   font-size: 14px;
-  color: var(--text-main);
+  color: var(--text-primary);
   outline: none;
 }
 
 .notes-field-input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-primary);
 }
 
 .notes-field-textarea {
   width: 100%;
   min-height: 220px;
   padding: 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-main);
+  color: var(--text-primary);
   resize: vertical;
   outline: none;
   font-family: inherit;
 }
 
 .notes-field-textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-primary);
+}
+
+/* ─── Modal View Mode ─── */
+.notes-modal.view-mode .notes-field-input,
+.notes-modal.view-mode .notes-field-textarea {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+  cursor: text;
+}
+
+.notes-modal.view-mode .notes-field-input:focus,
+.notes-modal.view-mode .notes-field-textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.notes-modal.view-mode .notes-field-input[readonly],
+.notes-modal.view-mode .notes-field-textarea[readonly] {
+  user-select: auto;
+}
+
+/* ─── Card Hover Actions ─── */
+.notes-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+
+.notes-row:hover .notes-card-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.notes-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s;
+}
+
+.notes-action-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--accent-primary);
+  transform: scale(1.05);
+}
+
+.notes-action-btn.delete:hover {
+  color: var(--priority-high);
 }
 
 .notes-modal-dates {
@@ -268,7 +340,7 @@
   font-size: 11px;
   color: var(--text-muted);
   padding: 8px 12px;
-  background: var(--bg-input);
+  background: var(--bg-secondary);
   border-radius: 8px;
 }
 

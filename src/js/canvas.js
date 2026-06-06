@@ -43,6 +43,31 @@ const Canvas = {
   // ─── Smart Positioning ───
 
   /**
+   * Read the actual priority zone boundaries from the DOM.
+   * Returns { high: {left,right}, medium: {left,right}, low: {left,right} }
+   */
+  getZoneBoundaries() {
+    const high = document.querySelector('.priority-zone-high');
+    const medium = document.querySelector('.priority-zone-medium');
+    const low = document.querySelector('.priority-zone-low');
+    return {
+      high:   { left: high.offsetLeft,   right: high.offsetLeft + high.offsetWidth },
+      medium: { left: medium.offsetLeft, right: medium.offsetLeft + medium.offsetWidth },
+      low:    { left: low.offsetLeft,    right: low.offsetLeft + low.offsetWidth },
+    };
+  },
+
+  /**
+   * Detect which priority zone an x-coordinate falls into.
+   */
+  detectPriorityZone(x) {
+    const zones = this.getZoneBoundaries();
+    if (x < zones.medium.left) return 'high';
+    if (x < zones.low.left) return 'medium';
+    return 'low';
+  },
+
+  /**
    * Find an open position on the canvas that doesn't overlap existing cards.
    * @param {string} priority - 'high' | 'medium' | 'low'
    * @returns {{x: number, y: number}}
@@ -51,23 +76,14 @@ const Canvas = {
     const CARD_W = 280;   // card width + horizontal padding
     const CARD_H = 140;   // estimated card height + vertical padding
     const PAD = 20;       // gap between cards
-    const CANVAS_W = 2400;
     const CANVAS_H = 1600;
-    const ZONE_W = CANVAS_W / 3;
     const TOP_MARGIN = 120;
 
-    // Determine the x-range for this priority zone
-    let zoneLeft, zoneRight;
-    if (priority === 'high') {
-      zoneLeft = 40;
-      zoneRight = ZONE_W - 20;
-    } else if (priority === 'medium') {
-      zoneLeft = ZONE_W + 24;
-      zoneRight = 2 * ZONE_W - 20;
-    } else {
-      zoneLeft = 2 * ZONE_W + 24;
-      zoneRight = CANVAS_W - 40;
-    }
+    // Read actual zone boundaries from the DOM
+    const zones = this.getZoneBoundaries();
+    const zone = zones[priority] || zones.medium;
+    const zoneLeft = zone.left + 16;
+    const zoneRight = zone.right - 16;
 
     // Collect occupied rectangles from existing active thoughts
     const occupied = this.thoughts.map((t) => ({
@@ -331,7 +347,7 @@ const Canvas = {
     card.appendChild(footer);
 
     // ─── Comment Cloud Button ───
-    const comments = thought.comments || [];
+    const comments = (thought.comments || []).filter(c => c && c.text && c.text.trim().length > 0);
     const hasComments = comments.length > 0;
 
     const commentCloud = document.createElement('button');
@@ -349,33 +365,36 @@ const Canvas = {
     });
     card.appendChild(commentCloud);
 
-    // ─── Hover-to-reveal comments (only if has comments) ───
-    if (hasComments) {
-      let hoverTimer = null;
-      card.addEventListener('mouseenter', () => {
-        hoverTimer = setTimeout(() => {
-          if (!this._activePopover || this._activePopover.dataset.thoughtId !== thought._id) {
+    // ─── Hover-to-reveal comments (always attached, dynamically checked) ───
+    let hoverTimer = null;
+    card.addEventListener('mouseenter', () => {
+      // Check live state of comments in case they were dynamically added
+      const liveComments = (thought.comments || []).filter(c => c && c.text && c.text.trim().length > 0);
+      if (liveComments.length === 0) return;
+
+      hoverTimer = setTimeout(() => {
+        if (!this._activePopover || this._activePopover.dataset.thoughtId !== thought._id) {
+          this.closeCommentPopover();
+          this.renderCommentPopover(thought._id, commentCloud);
+        }
+      }, 100); // 100ms for near-instant reveal without flickering
+    });
+
+    card.addEventListener('mouseleave', (e) => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      // Don't close if mouse moved into the popover itself
+      const related = e.relatedTarget;
+      if (this._activePopover && (this._activePopover.contains(related) || related === this._activePopover)) return;
+      // Small delay to allow moving into popover
+      setTimeout(() => {
+        if (this._activePopover && this._activePopover.dataset.thoughtId === thought._id) {
+          const popover = this._activePopover;
+          if (!popover.matches(':hover') && !card.matches(':hover')) {
             this.closeCommentPopover();
-            this.renderCommentPopover(thought._id, commentCloud);
           }
-        }, 100); // 100ms for near-instant reveal without flickering
-      });
-      card.addEventListener('mouseleave', (e) => {
-        if (hoverTimer) clearTimeout(hoverTimer);
-        // Don't close if mouse moved into the popover itself
-        const related = e.relatedTarget;
-        if (this._activePopover && (this._activePopover.contains(related) || related === this._activePopover)) return;
-        // Small delay to allow moving into popover
-        setTimeout(() => {
-          if (this._activePopover && this._activePopover.dataset.thoughtId === thought._id) {
-            const popover = this._activePopover;
-            if (!popover.matches(':hover') && !card.matches(':hover')) {
-              this.closeCommentPopover();
-            }
-          }
-        }, 200);
-      });
-    }
+        }
+      }, 200);
+    });
 
     // Check for overflow
     if (thought.content.length > 200) {
@@ -389,7 +408,7 @@ const Canvas = {
         return;
       }
       e.stopPropagation();
-      
+
       // Open the comment popover using the cloud icon as the anchor
       if (!this._activePopover || this._activePopover.dataset.thoughtId !== thought._id) {
         this.closeCommentPopover();
@@ -417,15 +436,44 @@ const Canvas = {
     const newVal = !thought.markedNow;
     thought.markedNow = newVal;
     await store.updateThought(id, { markedNow: newVal });
-    this.render();
-    this.initDraggable();
+
+    // Update DOM inline to prevent full canvas re-render
+    const card = document.querySelector(`.thought-card[data-id="${id}"]`);
+    if (card) {
+      const nowBtn = card.querySelector('.now-btn');
+      if (newVal) {
+        card.classList.add('marked-now');
+        const nowBadge = document.createElement('div');
+        nowBadge.className = 'now-badge';
+        nowBadge.innerHTML = `<span class="now-pulse"></span> NOW`;
+        card.insertBefore(nowBadge, card.firstChild);
+        
+        if (nowBtn) {
+          nowBtn.classList.add('active');
+          nowBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+          nowBtn.title = 'Unmark NOW';
+        }
+        // Bring to front
+        card.parentNode.appendChild(card);
+      } else {
+        card.classList.remove('marked-now');
+        const badge = card.querySelector('.now-badge');
+        if (badge) badge.remove();
+        
+        if (nowBtn) {
+          nowBtn.classList.remove('active');
+          nowBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+          nowBtn.title = 'Mark as NOW';
+        }
+      }
+    }
   },
 
   updatePriorityStatusBar() {
     const counts = { high: 0, medium: 0, low: 0 };
     // Only count thoughts currently visible (respecting filters)
     const filtered = this.thoughts.filter((t) => Tags.passesFilter(t));
-    
+
     filtered.forEach(t => {
       if (counts[t.priority] !== undefined) {
         counts[t.priority]++;
@@ -658,18 +706,8 @@ const Canvas = {
           const x = parseFloat(target.style.left) || 0;
           const y = parseFloat(target.style.top) || 0;
 
-          // Detect priority zone
-          const canvasContent = document.getElementById('canvas-content');
-          const zoneWidth = canvasContent.offsetWidth / 3;
-          let newPriority = null;
-
-          if (x < zoneWidth) {
-            newPriority = 'high';
-          } else if (x < 2 * zoneWidth) {
-            newPriority = 'medium';
-          } else {
-            newPriority = 'low';
-          }
+          // Detect priority zone from actual DOM zone positions
+          const newPriority = this.detectPriorityZone(x);
 
           const thought = this.thoughts.find((t) => t._id === id);
           if (thought) {
@@ -781,9 +819,9 @@ const Canvas = {
         .map((el) => el.dataset.name);
 
       const updates = { content, priority, tags: selectedTags, persistence };
-      
+
       const thought = this.thoughts.find((t) => t._id === id);
-      
+
       // Auto-arrange: if priority changed, move card to new zone
       if (thought && thought.priority !== priority) {
         const pos = this.findOpenPosition(priority);
@@ -884,21 +922,13 @@ const Canvas = {
       // Get double-click coordinates relative to #canvas-content
       const rect = content.getBoundingClientRect();
       const scale = this.zoomLevel / 100;
-      
+
       // Calculate coordinates in the native 2400x1600 coordinate system
       const x = (e.clientX - rect.left) / scale;
       const y = (e.clientY - rect.top) / scale;
 
-      // Determine priority based on standard 3 columns (width: 2400px)
-      // High: 0 to 800, Medium: 800 to 1600, Low: 1600 to 2400
-      let priority = 'medium';
-      if (x < 800) {
-        priority = 'high';
-      } else if (x >= 800 && x < 1600) {
-        priority = 'medium';
-      } else {
-        priority = 'low';
-      }
+      // Determine priority from actual DOM zone positions
+      const priority = Canvas.detectPriorityZone(x);
 
       // Offset so the card aligns centrally on the user's cursor
       const adjustedX = Math.max(40, x - 130);
@@ -923,23 +953,23 @@ const Canvas = {
       // Only pan on middle click OR if clicking directly on empty canvas
       if (e.target.closest('.thought-card') || e.target.closest('.finished-stack') || e.target.closest('button') || e.target.closest('input')) {
         // Allow middle mouse button to pan anywhere though
-        if (e.button !== 1) return; 
+        if (e.button !== 1) return;
       }
-      
+
       isPanning = true;
       hasMoved = false;
       startX = e.clientX;
       startY = e.clientY;
       scrollLeft = canvas.scrollLeft;
       scrollTop = canvas.scrollTop;
-      
+
       // If middle click, prevent default scroll wheel behavior
       if (e.button === 1) e.preventDefault();
     });
 
     window.addEventListener('mousemove', (e) => {
       if (!isPanning) return;
-      
+
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
 
@@ -989,7 +1019,7 @@ const Canvas = {
     if (this._activePopover) {
       const card = this._activePopover.closest('.thought-card');
       if (card) card.classList.remove('has-popover');
-      
+
       this._activePopover.remove();
       this._activePopover = null;
     }
@@ -1015,32 +1045,35 @@ const Canvas = {
     popover.className = 'comment-popover';
     popover.dataset.thoughtId = thoughtId;
 
-    // Header
+    // Header and Input
     popover.innerHTML = `
       <div class="comment-popover-header">
         <span class="comment-popover-title">💬 Comments</span>
         <button class="comment-popover-close">✕</button>
       </div>
-      <div class="comment-popover-list">
+      <div class="comment-add-row" style="border-bottom: 1px solid var(--border-color-light); border-top: none;">
+        <input type="text" class="comment-add-input" placeholder="Add a comment..." />
+        <button class="comment-add-btn">+</button>
+      </div>
+      <div class="comment-popover-list comment-timeline">
         ${comments.length === 0
-          ? '<div class="comment-empty">No comments yet</div>'
-          : comments.map((c, i) => `
-            <div class="comment-item" data-index="${i}">
-              <div class="comment-text">${this.linkify(c.text)}</div>
-              <div class="comment-meta">
-                <span class="comment-time">${Utils.formatTimestamp(c.createdAt)}${c.editedAt ? ' (edited)' : ''}</span>
-                <div class="comment-actions">
-                  <button class="comment-edit-btn" data-index="${i}" title="Edit">✏️</button>
-                  <button class="comment-delete-btn" data-index="${i}" title="Delete">🗑️</button>
+        ? '<div class="comment-empty">No comments yet</div>'
+        : comments.map((c, i) => ({ c, i })).reverse().map(({ c, i }, reversedIndex) => `
+            <div class="comment-item ${reversedIndex === 0 ? 'latest-comment' : ''}" data-index="${i}">
+              <div class="timeline-node"></div>
+              <div class="comment-content-wrapper">
+                <div class="comment-text">${this.linkify(c.text)}</div>
+                <div class="comment-meta">
+                  <span class="comment-time">${Utils.formatTimestamp(c.createdAt)}${c.editedAt ? ' (edited)' : ''}</span>
+                  <div class="comment-actions">
+                    <button class="comment-edit-btn" data-index="${i}" title="Edit">✏️</button>
+                    <button class="comment-delete-btn" data-index="${i}" title="Delete">🗑️</button>
+                  </div>
                 </div>
               </div>
             </div>
           `).join('')
-        }
-      </div>
-      <div class="comment-add-row">
-        <input type="text" class="comment-add-input" placeholder="Add a comment..." />
-        <button class="comment-add-btn">+</button>
+      }
       </div>
     `;
 
@@ -1080,6 +1113,10 @@ const Canvas = {
     });
 
     input.addEventListener('click', (e) => e.stopPropagation());
+    
+    // Prevent drag/pan interactions and unexpected closing when clicking inside popover
+    popover.addEventListener('mousedown', (e) => e.stopPropagation());
+    popover.addEventListener('touchstart', (e) => e.stopPropagation());
 
     // Edit buttons
     popover.querySelectorAll('.comment-edit-btn').forEach(btn => {
@@ -1111,7 +1148,8 @@ const Canvas = {
       const card = popover.closest('.thought-card');
       if (card && (card.contains(related) || related === card)) return;
       setTimeout(() => {
-        if (!popover._hovered && !(card && card.matches(':hover'))) {
+        // Only close if THIS popover is still the active one!
+        if (this._activePopover === popover && !popover._hovered && !(card && card.matches(':hover'))) {
           this.closeCommentPopover();
         }
       }, 300);
@@ -1139,30 +1177,28 @@ const Canvas = {
 
     await store.updateThought(thoughtId, { comments: thought.comments });
 
-    // Re-render the popover and update the cloud icon
-    this.closeCommentPopover();
-    this.render();
-    this.initDraggable();
+    // Update the cloud icon locally without reloading the whole canvas
+    const validComments = thought.comments.filter(c => c && c.text && c.text.trim().length > 0);
+    const hasComments = validComments.length > 0;
+    anchorEl.className = `comment-cloud ${hasComments ? 'has-comments' : ''}`;
+    anchorEl.title = hasComments ? `${validComments.length} comment${validComments.length > 1 ? 's' : ''}` : 'Add a comment';
+    anchorEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="${hasComments ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>${hasComments ? `<span class="comment-count">${validComments.length}</span>` : ''}`;
 
-    // Re-open popover on the new card
-    setTimeout(() => {
-      const newCard = document.querySelector(`.thought-card[data-id="${thoughtId}"]`);
-      if (newCard) {
-        const newCloud = newCard.querySelector('.comment-cloud');
-        if (newCloud) this.renderCommentPopover(thoughtId, newCloud);
-      }
-    }, 50);
+    // Re-render only the popover
+    this.closeCommentPopover();
+    this.renderCommentPopover(thoughtId, anchorEl);
   },
 
   isDeletingComment: false,
 
   async deleteComment(thoughtId, index, anchorEl) {
     if (this.isDeletingComment) return;
-    
+
     const thought = this.thoughts.find(t => t._id === thoughtId);
     if (!thought || !thought.comments) return;
 
-    // Safety check just in case index is out of bounds
     if (index < 0 || index >= thought.comments.length) return;
 
     this.isDeletingComment = true;
@@ -1170,19 +1206,19 @@ const Canvas = {
       thought.comments.splice(index, 1);
       await store.updateThought(thoughtId, { comments: thought.comments });
 
-      this.closeCommentPopover();
-      this.render();
-      this.initDraggable();
+      // Update the cloud icon locally without reloading the whole canvas
+      const validComments = thought.comments.filter(c => c && c.text && c.text.trim().length > 0);
+      const hasComments = validComments.length > 0;
+      anchorEl.className = `comment-cloud ${hasComments ? 'has-comments' : ''}`;
+      anchorEl.title = hasComments ? `${validComments.length} comment${validComments.length > 1 ? 's' : ''}` : 'Add a comment';
+      anchorEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="${hasComments ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>${hasComments ? `<span class="comment-count">${validComments.length}</span>` : ''}`;
 
-      // Re-open popover if there are still comments
-      if (thought.comments.length > 0) {
-        setTimeout(() => {
-          const newCard = document.querySelector(`.thought-card[data-id="${thoughtId}"]`);
-          if (newCard) {
-            const newCloud = newCard.querySelector('.comment-cloud');
-            if (newCloud) this.renderCommentPopover(thoughtId, newCloud);
-          }
-        }, 50);
+      this.closeCommentPopover();
+
+      if (hasComments) {
+        this.renderCommentPopover(thoughtId, anchorEl);
       }
     } finally {
       this.isDeletingComment = false;

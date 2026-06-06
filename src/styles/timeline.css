@@ -37,7 +37,7 @@
 /* ─── Day Group ─── */
 .timeline-day {
   margin-bottom: var(--space-xl);
-  animation: slideUp 0.3s ease;
+  animation: slideUp 0.3s ease both;
 }
 
 .timeline-day-header {
@@ -58,7 +58,7 @@
   position: relative;
   margin-bottom: var(--space-md);
   padding-left: var(--space-md);
-  animation: slideUp 0.3s ease;
+  animation: slideUp 0.3s ease both;
 }
 
 /* Timeline dot */

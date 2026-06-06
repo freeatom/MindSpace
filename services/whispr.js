@@ -7,13 +7,13 @@ const { URL } = require('url');
 
 const TRANSCRIPTION_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const TRANSLATION_ENDPOINT = 'https://api.groq.com/openai/v1/audio/translations';
-const MODEL = 'whisper-large-v3-turbo';
 
 /**
  * Transcribe audio buffer to text using Groq Whisper API
  * @param {Buffer} audioBuffer - Audio data (webm, wav, mp3, etc.)
  * @param {string} apiKey - Groq API key
  * @param {object} [options]
+ * @param {string} [options.model] - Whisper model to use (default: 'whisper-large-v3-turbo')
  * @param {string} [options.language] - ISO 639-1 language code (e.g. 'en')
  * @param {string} [options.filename] - Filename hint (default: 'audio.webm')
  * @param {boolean} [options.translate] - If true, use translation endpoint
@@ -23,6 +23,7 @@ function transcribe(audioBuffer, apiKey, options = {}) {
   const endpoint = options.translate ? TRANSLATION_ENDPOINT : TRANSCRIPTION_ENDPOINT;
   const filename = options.filename || 'audio.webm';
   const mimeType = filename.endsWith('.wav') ? 'audio/wav' : 'audio/webm';
+  const modelToUse = options.model || 'whisper-large-v3-turbo';
 
   return new Promise((resolve, reject) => {
     const boundary = '----WhisprBoundary' + Date.now().toString(36);
@@ -41,7 +42,7 @@ function transcribe(audioBuffer, apiKey, options = {}) {
     parts.push(
       `--${boundary}\r\n` +
       `Content-Disposition: form-data; name="model"\r\n\r\n` +
-      `${MODEL}\r\n`
+      `${modelToUse}\r\n`
     );
 
     // Language part (optional, only for transcription)

@@ -97,7 +97,7 @@ const Workflows = {
       card.innerHTML = `
         <div class="workflow-card-info">
           <div class="workflow-card-name">${this.escapeHtml(wf.name)}</div>
-          <div class="workflow-card-trigger">/${this.escapeHtml(wf.name)}</div>
+          <div class="workflow-card-trigger">${this.escapeHtml(wf.name)}</div>
           ${wf.description ? `<div class="workflow-card-desc">${this.escapeHtml(wf.description)}</div>` : ''}
         </div>
         <span class="workflow-card-steps">${wf.steps.length} step${wf.steps.length !== 1 ? 's' : ''}</span>
@@ -170,6 +170,123 @@ const Workflows = {
     newAddStep.addEventListener('click', () => {
       this._steps.push({ type: 'shell', value: '' });
       this.renderSteps(document.getElementById('workflow-steps'));
+    });
+
+    // ─── AI Create Bindings ───
+    const aiCreateBtn = document.getElementById('workflow-ai-create-btn');
+    const newAiCreateBtn = aiCreateBtn.cloneNode(true);
+    aiCreateBtn.parentNode.replaceChild(newAiCreateBtn, aiCreateBtn);
+
+    const aiBox = document.getElementById('workflow-ai-box');
+    const aiCloseBtn = document.getElementById('workflow-ai-close-btn');
+    const aiChips = document.querySelectorAll('.workflow-ai-chip');
+    const aiInput = document.getElementById('workflow-ai-input');
+    
+    // Reset UI
+    aiBox.classList.remove('visible');
+    document.getElementById('workflow-ai-result-area').style.display = 'none';
+    aiInput.value = '';
+
+    newAiCreateBtn.addEventListener('click', () => {
+      aiBox.classList.toggle('visible');
+    });
+
+    aiCloseBtn.addEventListener('click', () => {
+      aiBox.classList.remove('visible');
+    });
+
+    aiChips.forEach(chip => {
+      const newChip = chip.cloneNode(true);
+      chip.parentNode.replaceChild(newChip, chip);
+      newChip.addEventListener('click', () => {
+        document.getElementById('workflow-ai-result-code').textContent = newChip.dataset.script;
+        document.getElementById('workflow-ai-result-area').style.display = 'block';
+      });
+    });
+
+    const aiGenBtn = document.getElementById('workflow-ai-generate-btn');
+    const newAiGenBtn = aiGenBtn.cloneNode(true);
+    aiGenBtn.parentNode.replaceChild(newAiGenBtn, aiGenBtn);
+
+    newAiGenBtn.addEventListener('click', async () => {
+      const query = aiInput.value.trim();
+      if (!query) return;
+
+      const config = window.Commander ? Commander.getAIConfig() : null;
+      if (!config) {
+        SmartActions.toast('Please configure AI Provider in Settings first.');
+        return;
+      }
+
+      newAiGenBtn.disabled = true;
+      newAiGenBtn.textContent = '...';
+
+      const systemPrompt = `You generate simple Windows shell commands (PowerShell).
+The user wants to open an application or run a script.
+Output ONLY the raw command, nothing else. No markdown wrapping.
+Examples: 
+- code .
+- start spotify:
+- start msteams:`;
+
+      try {
+        const messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query }
+        ];
+        
+        const response = await window.electronAPI.aiQuery({
+          provider: config.provider,
+          apiKey: config.apiKey,
+          model: config.model,
+          messages
+        });
+
+        const script = response?.choices?.[0]?.message?.content || response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        
+        // Strip markdown backticks if any
+        let cleanScript = script.replace(/```[\s\S]*?\n/g, '').replace(/```/g, '').trim();
+
+        document.getElementById('workflow-ai-result-code').textContent = cleanScript;
+        document.getElementById('workflow-ai-result-area').style.display = 'block';
+      } catch (err) {
+        SmartActions.toast('AI Error: ' + err.message);
+      } finally {
+        newAiGenBtn.disabled = false;
+        newAiGenBtn.textContent = 'Ask AI';
+      }
+    });
+
+    const aiTestBtn = document.getElementById('workflow-ai-test-btn');
+    const newAiTestBtn = aiTestBtn.cloneNode(true);
+    aiTestBtn.parentNode.replaceChild(newAiTestBtn, aiTestBtn);
+
+    newAiTestBtn.addEventListener('click', async () => {
+      const script = document.getElementById('workflow-ai-result-code').textContent;
+      if (!script) return;
+      newAiTestBtn.textContent = '...';
+      try {
+        await window.electronAPI.runShellCommand(script);
+        newAiTestBtn.textContent = '✓ Sent';
+        setTimeout(() => newAiTestBtn.textContent = 'Test', 1500);
+      } catch (e) {
+        newAiTestBtn.textContent = '✗ Error';
+        setTimeout(() => newAiTestBtn.textContent = 'Test', 1500);
+      }
+    });
+
+    const aiUseBtn = document.getElementById('workflow-ai-use-btn');
+    const newAiUseBtn = aiUseBtn.cloneNode(true);
+    aiUseBtn.parentNode.replaceChild(newAiUseBtn, aiUseBtn);
+
+    newAiUseBtn.addEventListener('click', () => {
+      const script = document.getElementById('workflow-ai-result-code').textContent;
+      if (!script) return;
+      
+      this._steps.push({ type: 'shell', value: script });
+      this.renderSteps(document.getElementById('workflow-steps'));
+      
+      aiBox.classList.remove('visible');
     });
 
     newSave.addEventListener('click', async () => {

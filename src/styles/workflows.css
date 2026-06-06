@@ -277,3 +277,105 @@
   font-size: var(--font-size-xs);
   opacity: 0.6;
 }
+/* ─── AI Workflow Creator ─── */
+.workflow-ai-box {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.workflow-ai-box.visible {
+  display: flex;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.workflow-ai-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.workflow-ai-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.workflow-ai-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.workflow-ai-chips {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.workflow-ai-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.workflow-ai-chip:hover {
+  background: var(--accent-primary-light);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.workflow-ai-input-group {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+#workflow-ai-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: var(--font-size-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--text-primary);
+}
+
+#workflow-ai-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.workflow-ai-result-area {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+#workflow-ai-result-code {
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.workflow-ai-result-actions {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}

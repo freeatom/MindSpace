@@ -24,7 +24,7 @@ const App = {
     await Tools.init();
     QuickAdd.init();
     SmartActions.init();
-    
+
     // New Modules
     if (window.ClipboardMgr) await ClipboardMgr.init();
     if (window.Commander) Commander.init();
@@ -60,6 +60,16 @@ const App = {
       } else {
         SmartActions.toast(`Whispr: "${result.text.substring(0, 50)}…"`);
       }
+    });
+
+    // Listen for auto-fallback key switches (429 rate-limit)
+    window.electronAPI.onAiKeyAutoSwitched(({ newIndex }) => {
+      Settings.cache.aiActiveKeyIndex = newIndex;
+      // Update the radio buttons if the settings view is visible
+      const radios = document.querySelectorAll('input[name="setting-aiActiveKeyIndex"]');
+      radios.forEach(r => r.checked = (parseInt(r.value) === newIndex));
+      const keyLabel = newIndex === 0 ? 'Primary' : 'Secondary';
+      SmartActions.toast(`⚡ Rate limit hit — auto-switched to ${keyLabel} key`);
     });
   },
 
@@ -308,19 +318,19 @@ const App = {
   startClock() {
     const clockEl = document.getElementById('titlebar-clock');
     if (!clockEl) return;
-    
+
     const update = () => {
       const now = new Date();
-      
+
       const dateOpts = { weekday: 'short', month: 'short', day: 'numeric' };
       const dateStr = now.toLocaleDateString(undefined, dateOpts);
-      
+
       const timeOpts = { hour: 'numeric', minute: '2-digit', second: '2-digit' };
       const timeStr = now.toLocaleTimeString(undefined, timeOpts);
-      
+
       clockEl.innerHTML = `<span>${dateStr}</span> <span style="opacity:0.4; margin: 0 4px;">|</span> <span>${timeStr}</span>`;
     };
-    
+
     update();
     setInterval(update, 1000);
   }

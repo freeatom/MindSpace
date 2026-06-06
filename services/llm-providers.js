@@ -74,7 +74,9 @@ async function chatCompletion({ provider, apiKey, model, messages }) {
     });
     const parsed = JSON.parse(raw);
     if (statusCode >= 400) {
-      throw new Error(parsed.error?.message || raw.substring(0, 200));
+      const err = new Error(parsed.error?.message || raw.substring(0, 200));
+      err.statusCode = statusCode;
+      throw err;
     }
     const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return { content: text, raw: parsed };
@@ -102,7 +104,9 @@ async function chatCompletion({ provider, apiKey, model, messages }) {
   });
   const parsed = JSON.parse(raw);
   if (statusCode >= 400) {
-    throw new Error(parsed.error?.message || parsed.message || raw.substring(0, 200));
+    const err = new Error(parsed.error?.message || parsed.message || raw.substring(0, 200));
+    err.statusCode = statusCode;
+    throw err;
   }
   const content = parsed.choices?.[0]?.message?.content || '';
   return { content, raw: parsed };

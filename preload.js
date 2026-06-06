@@ -226,6 +226,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (insertedDoc && insertedDoc.iv && sessionKey) {
       insertedDoc.content = decryptText(insertedDoc.content, insertedDoc.iv, insertedDoc.tag, sessionKey);
     }
+    ipcRenderer.send('trigger-spotlight-refresh');
     return insertedDoc;
   },
   updateThought: async (id, updates) => {
@@ -236,10 +237,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       updatesToApply.iv = encrypted.iv;
       updatesToApply.tag = encrypted.tag;
     }
-    return thoughts.update({ _id: id }, { $set: updatesToApply });
+    const res = await thoughts.update({ _id: id }, { $set: updatesToApply });
+    ipcRenderer.send('trigger-spotlight-refresh');
+    return res;
   },
   deleteThought: async (id) => {
-    return thoughts.remove({ _id: id });
+    const res = await thoughts.remove({ _id: id });
+    ipcRenderer.send('trigger-spotlight-refresh');
+    return res;
   },
   getThought: async (id) => {
     const doc = await thoughts.findOne({ _id: id });
@@ -431,4 +436,63 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onWhisprResult: (callback) => ipcRenderer.on('whispr-result', (e, result) => callback(result)),
   whisprToggleFromRenderer: () => ipcRenderer.send('whispr-toggle-from-renderer'),
 });
+// Listen for requests from Spotlight for decrypted thoughts
+ipcRenderer.on('spotlight-request-recent-thoughts', async (e, replyChannel) => {
+  if (!dbReady || !thoughts) {
+    ipcRenderer.send(replyChannel, []);
+    return;
+  }
+  try {
+    const passwordSet = await settings.findOne({ key: 'passwordHash' });
+    
+    // If a password is set but sessionKey is null, MindSpace is locked.
+    // Do not return any thoughts (encrypted or not) for privacy.
+    if (passwordSet && !sessionKey) {
+      ipcRenderer.send(replyChannel, { locked: true });
+      return;
+    }
 
+    // Fetch all thoughts and filter robustly in JS to avoid NeDB query quirks
+    const allDocs = await thoughts.find({}).sort({ createdAt: -1 });
+    
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const getDayKey = (dateStr) => {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    
+    // Filter for active canvas thoughts only (match store.getActiveThoughts logic)
+    const docs = allDocs.filter(doc => {
+      if (doc.status === 'finished' || doc.status === 'dismissed') return false;
+      if (doc.status && doc.status !== 'active') return false; // Strict check if it exists
+      
+      // Check expiry
+      if (doc.persistence === 'today') {
+        const createdDay = getDayKey(doc.createdAt);
+        if (createdDay !== todayKey) return false;
+      }
+      
+      if (doc.persistence === 'until_date' && doc.expiresAt) {
+        if (new Date(doc.expiresAt) < now) return false;
+      }
+      
+      return true;
+    }).slice(0, 15);
+    
+    // Decrypt if necessary
+    if (sessionKey) {
+      docs.forEach(doc => {
+        if (doc.iv) {
+          doc.content = decryptText(doc.content, doc.iv, doc.tag, sessionKey);
+        }
+      });
+    }
+    ipcRenderer.send(replyChannel, docs);
+  } catch (err) {
+    console.error('Error fetching recent thoughts for Spotlight:', err);
+    ipcRenderer.send(replyChannel, []);
+  }
+});

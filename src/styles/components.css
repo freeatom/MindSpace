@@ -148,6 +148,11 @@
 .search-wrapper {
   position: relative;
   width: 220px;
+  transition: width var(--transition-base);
+}
+
+.search-wrapper:focus-within {
+  width: 280px;
 }
 
 .search-icon {
@@ -161,6 +166,7 @@
 
 .search-input {
   width: 100%;
+  box-sizing: border-box;
   padding: 7px 12px 7px 32px;
   font-family: var(--font-family);
   font-size: var(--font-size-sm);
@@ -176,7 +182,6 @@
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px var(--accent-primary-light);
   background: var(--bg-secondary);
-  width: 280px;
 }
 
 .search-input::placeholder {
@@ -458,14 +463,18 @@
 /* ─── Quick Add Row (Priority + Duration side by side) ─── */
 .quickadd-row {
   display: flex;
-  gap: var(--space-lg);
+  gap: 24px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
-.quickadd-priority,
+.quickadd-priority {
+  flex: 0 0 auto;
+}
+
 .quickadd-persistence {
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 /* ─── Persistence / Duration Buttons ─── */

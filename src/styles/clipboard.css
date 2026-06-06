@@ -70,7 +70,7 @@
   padding: var(--space-md);
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
-  animation: slideUp 0.2s ease;
+  animation: slideUp 0.2s ease both;
 }
 
 .clip-card:hover {

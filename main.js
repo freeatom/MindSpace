@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, exec } = require('child_process');
@@ -20,6 +20,7 @@ let spotlightPanelOpen = false;
 let spotlightReady = false;
 let cachedSpotlightWorkflows = null;
 let workflowsCacheMtime = 0;
+let tray = null;
 
 // ─── Whispr (speech-to-text) state ───
 let whisprPillWindow = null;
@@ -100,12 +101,31 @@ ipcMain.handle('calendar-dismiss-notification', async (event, id) => {
 function getAiConfigFromStore() {
   const userData = app.getPath('userData');
   const provider = settingsStore.getSetting(userData, 'aiProvider') || 'groq';
-  const apiKey = settingsStore.getSetting(userData, 'aiApiKey') || '';
+
+  // API Key Fallback Logic
+  const primaryKey = settingsStore.getSetting(userData, 'aiApiKey') || '';
+  const secondaryKey = settingsStore.getSetting(userData, 'aiApiKeySecondary') || '';
+  const activeKeyIndex = settingsStore.getSetting(userData, 'aiActiveKeyIndex') || 0;
+  const apiKey = (activeKeyIndex === 1 && secondaryKey.trim()) ? secondaryKey : primaryKey;
+
   const model = settingsStore.getSetting(userData, 'aiModel') || '';
+  const whisprModel = settingsStore.getSetting(userData, 'aiWhisprModel') || 'whisper-large-v3-turbo';
+  const aiAutoFallback = settingsStore.getSetting(userData, 'aiAutoFallback') || false;
+
+  // Whispr has its own dedicated Groq key; falls back to the active chat key
+  const dedicatedWhisprKey = settingsStore.getSetting(userData, 'whisprApiKey') || '';
+  const whisprApiKey = dedicatedWhisprKey.trim() ? dedicatedWhisprKey : apiKey;
+
   return {
     provider,
     apiKey,
+    primaryKey,
+    secondaryKey,
+    activeKeyIndex,
     model: model || getDefaultModel(provider),
+    whisprModel,
+    whisprApiKey,
+    aiAutoFallback,
     hasKey: !!(apiKey && apiKey.trim()),
     supportsStream: !!(PROVIDERS[provider]?.supportsStream),
   };
@@ -141,6 +161,16 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // ─── Close = Hide to tray (keep services alive) ───
+  // Only truly close if app.isQuitting (set by tray "Exit" or system shutdown)
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+      return;
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -162,16 +192,58 @@ function createWindow() {
   });
 }
 
+// ─── System Tray ───
+function createTray() {
+  const trayIconPath = path.join(__dirname, 'src', 'assets', 'tray-icon.png');
+  const icon = nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip('MindSpace');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open MindSpace',
+      click: () => showOrCreateMainWindow(),
+    },
+    {
+      label: 'Toggle Spotlight',
+      click: () => toggleSpotlight(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Exit',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // Double-click tray icon → open/show main window
+  tray.on('double-click', () => {
+    showOrCreateMainWindow();
+  });
+}
+
+// ─── Show or Create Main Window ───
+function showOrCreateMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else {
+    createWindow();
+  }
+}
+
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    showOrCreateMainWindow();
   });
 }
 
@@ -181,6 +253,9 @@ app.whenReady().then(async () => {
   await calendarStore.init(app.getPath('userData'));
 
   createWindow();
+
+  // Create system tray (persistent lifecycle control)
+  createTray();
 
   calendarScheduler = new CalendarScheduler(() => mainWindow);
   await calendarScheduler.start();
@@ -201,8 +276,11 @@ app.whenReady().then(async () => {
   // Start clipboard polling
   startClipboardPolling();
 
-  // Start push-to-talk monitor (Insert key)
+  // Start push-to-talk monitor (Right Shift key)
   startPushToTalkMonitor();
+
+  // Pre-warm whispr pill so it's instantly ready on first PTT press
+  createWhisprPill();
 });
 
 app.on('will-quit', () => {
@@ -211,10 +289,18 @@ app.on('will-quit', () => {
   stopClipboardPolling();
   stopPushToTalkMonitor();
   if (calendarScheduler) calendarScheduler.stop();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
 });
 
+// ─── Keep process alive when all windows are closed ───
+// Services (calendar, spotlight, PTT, clipboard) continue running in background.
+// Only exit when the user explicitly clicks "Exit" from the system tray.
 app.on('window-all-closed', () => {
-  app.quit();
+  // Do NOT quit — keep background services running
+  // The tray icon remains visible for the user to reopen or exit
 });
 
 app.on('activate', () => {
@@ -402,12 +488,24 @@ ipcMain.on('spotlight-close', () => {
 
 ipcMain.on('spotlight-open-calendar', (event, prefill) => {
   hideSpotlight();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('calendar-open-event-modal', prefill || {});
+  showOrCreateMainWindow();
+  // Wait briefly for window to be ready if it was just created
+  const sendCalendarEvent = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('calendar-open-event-modal', prefill || {});
+    }
+  };
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
+    sendCalendarEvent();
+  } else if (mainWindow) {
+    mainWindow.webContents.once('did-finish-load', sendCalendarEvent);
   }
+});
+
+// ─── Spotlight: Open in App ───
+ipcMain.on('spotlight-open-app', () => {
+  hideSpotlight();
+  showOrCreateMainWindow();
 });
 
 // ─── Spotlight Chat History ───
@@ -450,21 +548,43 @@ ipcMain.handle('spotlight-chat-delete', async (event, id) => {
 });
 
 // Spotlight saves go through main window's webContents
+// ─── Spotlight saves: relay to main window (works even when hidden) ───
+// When mainWindow is hidden (not destroyed), webContents is still alive and can receive messages.
+// If mainWindow was somehow destroyed, we recreate it in the background to process the save.
 ipcMain.on('spotlight-save-thought', (event, data) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('spotlight-create-thought', data);
+  } else {
+    // Recreate window in background to handle the save
+    createWindow();
+    mainWindow.hide();
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('spotlight-create-thought', data);
+    });
   }
 });
 
 ipcMain.on('spotlight-save-archive', (event, data) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('spotlight-create-archive', data);
+  } else {
+    createWindow();
+    mainWindow.hide();
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('spotlight-create-archive', data);
+    });
   }
 });
 
 ipcMain.on('spotlight-execute-workflow', (event, name) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('spotlight-execute-workflow', name);
+  } else {
+    createWindow();
+    mainWindow.hide();
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('spotlight-execute-workflow', name);
+    });
   }
 });
 
@@ -481,6 +601,53 @@ ipcMain.handle('spotlight-get-tags', async () => {
   } catch (err) {
     console.error('Failed to read tags for spotlight:', err);
     return [];
+  }
+});
+
+// Spotlight: get recent thoughts for the thought stack display
+ipcMain.handle('spotlight-get-recent-thoughts', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return [];
+  
+  return new Promise((resolve) => {
+    // Generate a unique reply channel for this request
+    const replyChannel = 'spotlight-recent-thoughts-reply-' + Date.now() + Math.random().toString(36).substr(2, 9);
+    
+    // Listen for the reply once
+    ipcMain.once(replyChannel, (event, thoughts) => {
+      resolve(thoughts);
+    });
+    
+    // Send request to main window (which has the decryption key and preload logic)
+    mainWindow.webContents.send('spotlight-request-recent-thoughts', replyChannel);
+    
+    // Timeout fallback just in case main window doesn't reply
+    setTimeout(() => {
+      ipcMain.removeAllListeners(replyChannel);
+      resolve([]);
+    }, 2000);
+  });
+});
+
+// Spotlight: open a thought in the main app
+ipcMain.on('spotlight-open-thought', (event, id) => {
+  hideSpotlight();
+  showOrCreateMainWindow();
+  const sendOpenThought = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spotlight-focus-thought', id);
+    }
+  };
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
+    sendOpenThought();
+  } else if (mainWindow) {
+    mainWindow.webContents.once('did-finish-load', sendOpenThought);
+  }
+});
+
+// Broadcast refresh signal to Spotlight
+ipcMain.on('trigger-spotlight-refresh', () => {
+  if (spotlightWindow && !spotlightWindow.isDestroyed()) {
+    spotlightWindow.webContents.send('spotlight-refresh-thoughts');
   }
 });
 
@@ -583,6 +750,15 @@ ipcMain.handle('ai-test-connection', async (event, { provider, apiKey, model }) 
   return validateApiKey({ provider: p, apiKey: key, model: m || getDefaultModel(p) });
 });
 
+ipcMain.handle('whispr-test-connection', async (event, { apiKey }) => {
+  // Validate the Groq key by sending a lightweight chat request (Groq doesn't have a dedicated Whisper validation endpoint)
+  const key = apiKey || settingsStore.getSetting(app.getPath('userData'), 'whisprApiKey') || '';
+  if (!key || !key.trim()) {
+    return { ok: false, error: 'No Whispr API key provided' };
+  }
+  return validateApiKey({ provider: 'groq', apiKey: key.trim(), model: 'llama-3.3-70b-versatile' });
+});
+
 ipcMain.handle('spotlight-web-search', async (event, query) => {
   try {
     const data = await searchWeb(query);
@@ -638,10 +814,28 @@ ipcMain.handle('spotlight-save-notes', async (event, text) => {
   return true;
 });
 
+// Helper: attempt auto-fallback to the other API key on 429 rate-limit
+function getAlternateApiKey(config) {
+  if (!config.aiAutoFallback) return null;
+  const otherKey = config.activeKeyIndex === 0 ? config.secondaryKey : config.primaryKey;
+  if (!otherKey || !otherKey.trim()) return null;
+  return otherKey.trim();
+}
+
+function persistKeySwitch(config) {
+  const userData = app.getPath('userData');
+  const newIndex = config.activeKeyIndex === 0 ? 1 : 0;
+  settingsStore.setSetting(userData, 'aiActiveKeyIndex', newIndex);
+  // Notify main window so Settings cache updates
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('ai-key-auto-switched', { newIndex });
+  }
+}
+
 ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
   const config = getAiConfigFromStore();
   if (!config.hasKey) {
-    throw new Error('No API key configured. Add your Groq API key in Settings.');
+    throw new Error('No API key configured. Add your API key in Settings → AI Chat Assistant.');
   }
 
   const opts = {
@@ -649,6 +843,23 @@ ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
     apiKey: config.apiKey,
     model: config.model,
     messages,
+  };
+
+  const tryWithFallback = async (attemptOpts) => {
+    try {
+      return await chatCompletion(attemptOpts);
+    } catch (err) {
+      // Auto-fallback on 429 rate-limit
+      if (err.statusCode === 429) {
+        const altKey = getAlternateApiKey(config);
+        if (altKey && altKey !== attemptOpts.apiKey) {
+          console.log('AI Chat: 429 rate-limit detected, auto-switching to alternate key');
+          persistKeySwitch(config);
+          return await chatCompletion({ ...attemptOpts, apiKey: altKey });
+        }
+      }
+      throw err;
+    }
   };
 
   if (stream && config.supportsStream) {
@@ -661,12 +872,29 @@ ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
           }
         },
         onDone: () => resolve({ streamed: true }),
-        onError: (err) => reject(err),
+        onError: async (err) => {
+          // For streaming 429 errors, retry non-streaming with alternate key
+          if (err.message && err.message.includes('429')) {
+            const altKey = getAlternateApiKey(config);
+            if (altKey && altKey !== opts.apiKey) {
+              console.log('AI Chat stream: 429 detected, retrying non-streaming with alternate key');
+              persistKeySwitch(config);
+              try {
+                const result = await chatCompletion({ ...opts, apiKey: altKey });
+                resolve({ content: result.content, streamed: false });
+              } catch (retryErr) {
+                reject(retryErr);
+              }
+              return;
+            }
+          }
+          reject(err);
+        },
       });
     });
   }
 
-  const result = await chatCompletion(opts);
+  const result = await tryWithFallback(opts);
   return { content: result.content, streamed: false };
 });
 
@@ -718,12 +946,24 @@ function stopClipboardPolling() {
 // ─── AI Query (Commander / Braindump — preserves existing API shape) ───
 ipcMain.handle('ai-query', async (event, { provider, apiKey, model, messages }) => {
   const resolvedModel = model || getDefaultModel(provider);
-  const result = await chatCompletion({ provider, apiKey, model: resolvedModel, messages });
 
-  if (provider === 'gemini') {
+  try {
+    const result = await chatCompletion({ provider, apiKey, model: resolvedModel, messages });
     return result.raw;
+  } catch (err) {
+    // Auto-fallback on 429 rate-limit
+    if (err.statusCode === 429) {
+      const config = getAiConfigFromStore();
+      const altKey = getAlternateApiKey(config);
+      if (altKey && altKey !== apiKey) {
+        console.log('AI Query: 429 rate-limit detected, auto-switching to alternate key');
+        persistKeySwitch(config);
+        const result = await chatCompletion({ provider, apiKey: altKey, model: resolvedModel, messages });
+        return result.raw;
+      }
+    }
+    throw err;
   }
-  return result.raw;
 });
 
 // ─── Run Shell Command ───
@@ -764,6 +1004,7 @@ ipcMain.on('window-maximize', () => {
 });
 
 ipcMain.on('window-close', () => {
+  // This triggers the 'close' event handler which will hide instead of quit
   if (mainWindow) mainWindow.close();
 });
 
@@ -940,8 +1181,14 @@ ipcMain.on('auto-paste-full', (event, text, delayMs) => {
 
 // ─── Whispr — Speech-to-Text ───
 
+let whisprPillReady = false;
+let whisprPillPendingState = null;
+let whisprHideTimeout = null;
+
 function createWhisprPill() {
   if (whisprPillWindow && !whisprPillWindow.isDestroyed()) return whisprPillWindow;
+
+  whisprPillReady = false;
 
   const display = screen.getPrimaryDisplay();
   const pillWidth = 220;
@@ -968,35 +1215,71 @@ function createWhisprPill() {
   });
 
   whisprPillWindow.loadFile(path.join(__dirname, 'src', 'whispr-pill.html'));
-  whisprPillWindow.on('closed', () => { whisprPillWindow = null; });
+
+  whisprPillWindow.on('closed', () => {
+    whisprPillWindow = null;
+    whisprPillReady = false;
+  });
 
   return whisprPillWindow;
 }
 
+// Called by the pill renderer once its JS is initialized and listening for IPC
+ipcMain.on('whispr-pill-ready', () => {
+  whisprPillReady = true;
+  // Flush any pending state that was queued before the pill was ready
+  if (whisprPillPendingState && whisprPillWindow && !whisprPillWindow.isDestroyed()) {
+    if (!whisprPillWindow.isVisible()) whisprPillWindow.show();
+    whisprPillWindow.webContents.send('whispr-pill-state', whisprPillPendingState);
+    whisprPillPendingState = null;
+  }
+});
+
 function showWhisprPill(state) {
+  // Cancel any pending hide — a new show takes priority
+  if (whisprHideTimeout) {
+    clearTimeout(whisprHideTimeout);
+    whisprHideTimeout = null;
+  }
+
   const pill = createWhisprPill();
-  
-  const applyState = () => {
+
+  if (whisprPillReady && !pill.webContents.isLoading()) {
+    // Pill is warm and ready — send immediately
     if (!pill.isVisible()) pill.show();
     pill.webContents.send('whispr-pill-state', state);
-  };
-
-  if (pill.webContents.isLoading()) {
-    pill.webContents.once('did-finish-load', applyState);
+    whisprPillPendingState = null;
   } else {
-    applyState();
+    // Pill is still loading — queue the state for when it signals ready
+    whisprPillPendingState = state;
+    // Also listen for did-finish-load as a fallback safety net
+    pill.webContents.once('did-finish-load', () => {
+      // Give the renderer a moment to set up its IPC listeners
+      setTimeout(() => {
+        if (whisprPillPendingState && whisprPillWindow && !whisprPillWindow.isDestroyed()) {
+          if (!whisprPillWindow.isVisible()) whisprPillWindow.show();
+          whisprPillWindow.webContents.send('whispr-pill-state', whisprPillPendingState);
+          whisprPillPendingState = null;
+          whisprPillReady = true;
+        }
+      }, 50);
+    });
   }
 }
 
 function hideWhisprPill() {
   if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
     whisprPillWindow.webContents.send('whispr-pill-state', 'done');
-    setTimeout(() => {
+    // Cancel any previous hide timeout
+    if (whisprHideTimeout) clearTimeout(whisprHideTimeout);
+    whisprHideTimeout = setTimeout(() => {
+      whisprHideTimeout = null;
       if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
         whisprPillWindow.hide();
       }
-    }, 300);
+    }, 400);
   }
+  whisprPillPendingState = null;
 }
 
 function toggleWhispr() {
@@ -1030,7 +1313,7 @@ ipcMain.handle('whispr-transcribe', async (event, audioArrayBuffer) => {
 
   try {
     const audioBuffer = Buffer.from(audioArrayBuffer);
-    const result = await whispr.transcribe(audioBuffer, aiConfig.apiKey);
+    const result = await whispr.transcribe(audioBuffer, aiConfig.whisprApiKey, { model: aiConfig.whisprModel });
 
     // Smart routing: send result to the focused window, or paste externally
     const spotlightVisible = spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible();
@@ -1103,7 +1386,7 @@ ipcMain.on('whispr-toggle-from-renderer', () => {
   toggleWhispr();
 });
 
-// ─── Push-to-Talk (Insert key) ───
+// ─── Push-to-Talk (Right Shift key) ───
 let pttProcess = null;
 let pttActive = false;
 
@@ -1117,10 +1400,10 @@ public class KeyStateMonitor {
     public static extern short GetAsyncKeyState(int vKey);
 }
 "@
-$$VK_INSERT = 0x2D
+$$VK_RSHIFT = 0xA1
 $$wasDown = $$false
 while ($$true) {
-    $$down = ([KeyStateMonitor]::GetAsyncKeyState($$VK_INSERT) -band 0x8000) -ne 0
+    $$down = ([KeyStateMonitor]::GetAsyncKeyState($$VK_RSHIFT) -band 0x8000) -ne 0
     if ($$down -and -not $$wasDown) {
         [Console]::Out.WriteLine("DOWN")
         [Console]::Out.Flush()

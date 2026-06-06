@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   openFile: (filePath) => ipcRenderer.send('spotlight-open-file', filePath),
   openUrl: (url) => ipcRenderer.send('spotlight-open-url', url),
   close: () => ipcRenderer.send('spotlight-close'),
+  openApp: () => ipcRenderer.send('spotlight-open-app'),
   onShown: (callback) => ipcRenderer.on('spotlight-shown', () => callback()),
   onHidden: (callback) => ipcRenderer.on('spotlight-hidden', () => callback()),
   resize: (size) => ipcRenderer.send('spotlight-resize', size),
@@ -37,6 +38,11 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   saveChatSession: (session) => ipcRenderer.invoke('spotlight-chat-save', session),
   getChatSessions: () => ipcRenderer.invoke('spotlight-chat-get-all'),
   deleteChatSession: (id) => ipcRenderer.invoke('spotlight-chat-delete', id),
+
+  // Thought Stack
+  getRecentThoughts: () => ipcRenderer.invoke('spotlight-get-recent-thoughts'),
+  openThought: (id) => ipcRenderer.send('spotlight-open-thought', id),
+  onRefreshThoughts: (callback) => ipcRenderer.on('spotlight-refresh-thoughts', () => callback()),
 
   // Whispr (speech-to-text)
   onWhisprToggle: (callback) => ipcRenderer.on('whispr-toggle', (e, recording) => callback(recording)),

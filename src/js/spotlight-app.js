@@ -49,6 +49,8 @@
   let pastedImage = null;
   let loadedWorkflows = [];
   let currentWorkflowMatch = null;
+  const autocompletePopup = document.getElementById('sl-autocomplete-popup');
+  let autocompleteIndex = -1;
   let localFileResults = [];
   let selectedFileIndex = -1;
   let searchTimeout = null;
@@ -169,6 +171,9 @@
 
   function onSpotlightShown() {
     loadBackgroundData();
+    if (currentMode === 'thought') {
+      loadRecentThoughts();
+    }
     // Trigger the entrance transition: shell starts at opacity:0/translateX(8px)
     // and transitions to visible state
     if (spotlightShell) {
@@ -204,6 +209,11 @@
   window.spotlightAPI.onShown(() => onSpotlightShown());
   window.spotlightAPI.onHidden(() => onSpotlightHidden());
   window.spotlightAPI.onChatChunk(({ chunk }) => appendStreamingChunk(chunk));
+  if (window.spotlightAPI.onRefreshThoughts) {
+    window.spotlightAPI.onRefreshThoughts(() => {
+      if (currentMode === 'thought') loadRecentThoughts();
+    });
+  }
 
   // ─── Whispr (Speech-to-Text) ───
   const whisprBtn = document.getElementById('whispr-btn');
@@ -324,6 +334,18 @@
     window.spotlightAPI.whisprToggleFromRenderer();
   });
 
+  // Open in App button — shows the main MindSpace window
+  const openAppBtn = document.getElementById('open-app-btn');
+  openAppBtn?.addEventListener('click', () => {
+    window.spotlightAPI.openApp();
+  });
+
+  // Close Spotlight button
+  const closeSpotlightBtn = document.getElementById('close-spotlight-btn');
+  closeSpotlightBtn?.addEventListener('click', () => {
+    window.spotlightAPI.close();
+  });
+
   // Preload workflows while window is hidden
   setTimeout(loadBackgroundData, 0);
 
@@ -378,15 +400,56 @@
   // Save thought button
   thoughtSaveBtn?.addEventListener('click', () => saveThought());
 
-  // Ctrl+Enter to save
+  // Enter to save (Shift+Enter for new line)
   thoughtInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    // 1. Autocomplete Popup Navigation
+    if (autocompletePopup && autocompletePopup.style.display === 'block') {
+      const items = autocompletePopup.querySelectorAll('.sl-autocomplete-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        autocompleteIndex = (autocompleteIndex + 1) % items.length;
+        updateAutocompleteSelection(items);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        autocompleteIndex = (autocompleteIndex - 1 + items.length) % items.length;
+        updateAutocompleteSelection(items);
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && autocompleteIndex >= 0 && autocompleteIndex < items.length) {
+        e.preventDefault();
+        items[autocompleteIndex].click();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeAutocomplete();
+        return;
+      }
+    }
+
+    // 2. Ghost Text Autocomplete
+    if ((e.key === 'Enter' || e.key === 'Tab') && currentWorkflowMatch) {
+      e.preventDefault();
+      e.stopPropagation();
+      thoughtInput.value = currentWorkflowMatch.name + ' ';
+      closeAutocomplete();
+      if (e.key === 'Enter') {
+        saveThought();
+      }
+      return;
+    }
+
+    // 3. Normal behavior
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       saveThought();
       return;
     }
     if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation();
       const idx = MODES.indexOf(currentMode);
       setMode(MODES[(idx + 1) % MODES.length]);
       return;
@@ -402,6 +465,42 @@
     }
   });
 
+  function renderAutocomplete(matches) {
+    if (!autocompletePopup) return;
+    autocompletePopup.innerHTML = '';
+    autocompleteIndex = -1;
+    matches.forEach((wf, i) => {
+      const item = document.createElement('div');
+      item.className = 'sl-autocomplete-item';
+      item.textContent = wf.name;
+      item.dataset.index = i;
+      item.addEventListener('click', () => {
+        thoughtInput.value = wf.name + ' ';
+        closeAutocomplete();
+        thoughtInput.focus();
+      });
+      item.addEventListener('mouseenter', () => {
+        autocompleteIndex = i;
+        updateAutocompleteSelection(autocompletePopup.querySelectorAll('.sl-autocomplete-item'));
+      });
+      autocompletePopup.appendChild(item);
+    });
+    autocompletePopup.style.display = 'block';
+  }
+
+  function updateAutocompleteSelection(items) {
+    items.forEach((item, i) => {
+      item.classList.toggle('active', i === autocompleteIndex);
+    });
+  }
+
+  function closeAutocomplete() {
+    if (autocompletePopup) {
+      autocompletePopup.style.display = 'none';
+      autocompleteIndex = -1;
+    }
+  }
+
   thoughtInput?.addEventListener('input', handleThoughtInput);
 
   async function saveThought() {
@@ -413,7 +512,7 @@
     }
 
     thoughtSaveBtn.disabled = true;
-    if (thoughtStatus) thoughtStatus.textContent = 'Saving…';
+    if (thoughtStatus) thoughtStatus.textContent = '';
 
     try {
       // Check for calendar-like commands
@@ -473,6 +572,12 @@
       }
 
       window.spotlightAPI.saveThought(thoughtData);
+
+      // Clear input fields so it doesn't stay persistent when re-opened
+      thoughtInput.value = '';
+      pastedImage = null;
+      if (thoughtType) thoughtType.textContent = 'Thought';
+
       window.spotlightAPI.close();
     } catch (err) {
       if (thoughtStatus) thoughtStatus.textContent = 'Error: ' + err.message;
@@ -565,6 +670,106 @@
   });
 
   // ─── Mode switching ───
+  function relativeTime(dateStr) {
+    if (!dateStr) return '';
+    const now = Date.now();
+    const then = new Date(dateStr).getTime();
+    const diff = now - then;
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'yesterday';
+    if (days < 7) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  async function loadRecentThoughts() {
+    const container = document.getElementById('sl-recent-thoughts');
+    if (!container || !window.spotlightAPI.getRecentThoughts) return;
+    try {
+      const thoughts = await window.spotlightAPI.getRecentThoughts();
+      container.innerHTML = '';
+
+      if (thoughts && thoughts.locked) {
+        container.innerHTML = `
+          <div class="sl-thought-stack-empty sl-locked-vault">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>MindSpace is Locked</span>
+            <span style="font-size: 8px; margin-top: -2px;">Unlock MindSpace to View and Sync thoughts</span>
+          </div>`;
+        return;
+      }
+
+      if (!thoughts || thoughts.length === 0) {
+        container.innerHTML = `
+          <div class="sl-thought-stack-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <line x1="8" y1="9" x2="16" y2="9"/>
+              <line x1="8" y1="13" x2="13" y2="13"/>
+            </svg>
+            <span>No thoughts yet — create one above</span>
+          </div>`;
+        return;
+      }
+
+      // Stack header
+      const header = document.createElement('div');
+      header.className = 'sl-thought-stack-header';
+      header.innerHTML = `
+        <span class="sl-thought-stack-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="3"/>
+            <line x1="8" y1="9" x2="16" y2="9"/>
+            <line x1="8" y1="13" x2="13" y2="13"/>
+          </svg>
+          Your Thought Stack
+        </span>
+        <span class="sl-thought-stack-count">${thoughts.length}</span>`;
+      container.appendChild(header);
+
+      // Render cards
+      thoughts.forEach(t => {
+        const card = document.createElement('div');
+        card.className = `sl-thought-card ${t.markedNow ? 'marked-now' : ''}`;
+        card.dataset.priority = t.priority || 'medium';
+
+        const content = (t.content || 'Empty thought').length > 80
+          ? t.content.substring(0, 80) + '…'
+          : (t.content || 'Empty thought');
+
+        const tagHtml = (t.tags || []).slice(0, 3).map(tag =>
+          `<span class="sl-thought-card-tag">${escapeHtml(tag)}</span>`
+        ).join('');
+
+        const nowHtml = t.markedNow ? `<span class="sl-now-badge"><span class="sl-now-pulse"></span>NOW</span>` : '';
+
+        card.innerHTML = `
+          ${nowHtml}
+          <div class="sl-thought-card-content">${escapeHtml(content)}</div>
+          <div class="sl-thought-card-meta">
+            <span class="sl-thought-card-dot"></span>
+            <span class="sl-thought-card-time">${relativeTime(t.createdAt)}</span>
+            <span class="sl-thought-card-tags">${tagHtml}</span>
+          </div>`;
+
+        card.addEventListener('click', () => {
+          window.spotlightAPI.openThought(t._id);
+        });
+        container.appendChild(card);
+      });
+    } catch (err) {
+      console.error('Failed to load recent thoughts', err);
+    }
+  }
+
   function setMode(mode) {
     if (!MODES.includes(mode)) return;
     if (mode !== 'search') closeBrowser();
@@ -579,6 +784,7 @@
 
     if (mode === 'thought') {
       loadTagsLazy();
+      loadRecentThoughts();
       thoughtInput.focus();
     }
     else if (mode === 'chat') chatInput.focus();
@@ -619,7 +825,62 @@
       thoughtType.textContent = 'Thought';
       fileResults.classList.remove('visible');
       fileResults.innerHTML = '';
+      if (typeof closeAutocomplete === 'function') closeAutocomplete();
+      if (thoughtGhost) {
+        thoughtGhost.textContent = '';
+        thoughtGhost.classList.remove('visible');
+      }
       return;
+    }
+
+    // Check autocomplete for workflows against the first word
+    const firstWord = trimVal.split(/\s+/)[0].toLowerCase();
+
+    if (firstWord && loadedWorkflows && loadedWorkflows.length > 0) {
+      const query = firstWord;
+
+      // 1. Popup Autocomplete matches
+      if (typeof renderAutocomplete === 'function') {
+        const matches = loadedWorkflows.filter(wf => wf.name.toLowerCase().startsWith(query) || wf.name.toLowerCase().includes(query));
+        if (matches.length > 0) {
+          renderAutocomplete(matches);
+        } else {
+          if (typeof closeAutocomplete === 'function') closeAutocomplete();
+        }
+      }
+
+      // 2. Exact prefix match for Ghost Text and Tab/Enter hijack
+      const match = loadedWorkflows.find((w) => w.name.toLowerCase().startsWith(query));
+      
+      // Only show ghost text if they are still typing the first word without trailing spaces
+      if (match && val === firstWord) {
+        currentWorkflowMatch = match;
+        thoughtType.textContent = 'Workflow';
+
+        if (thoughtGhost) {
+          let ghostText = val + match.name.substring(query.length);
+          if (match.description) {
+            ghostText += ` — ${match.description}`;
+          }
+          thoughtGhost.textContent = ghostText;
+          thoughtGhost.classList.add('visible');
+        }
+        return; // Stop here, it's a workflow prefix
+      } else {
+        // They are typing beyond the first word, so it's either a multi-word thought or manual entry
+        currentWorkflowMatch = null;
+        if (thoughtGhost) {
+          thoughtGhost.textContent = '';
+          thoughtGhost.classList.remove('visible');
+        }
+      }
+    } else {
+      // Not a workflow — clean up UI
+      if (typeof closeAutocomplete === 'function') closeAutocomplete();
+      if (thoughtGhost) {
+        thoughtGhost.textContent = '';
+        thoughtGhost.classList.remove('visible');
+      }
     }
 
     if (val.toLowerCase().startsWith('find: ')) {
@@ -642,19 +903,16 @@
 
     fileResults.classList.remove('visible');
 
-    if (trimVal.length > 0) {
-      const match = loadedWorkflows.find((w) => w.name.toLowerCase().startsWith(trimVal.toLowerCase()));
-      if (match) {
-        currentWorkflowMatch = match;
+    if (isCalendarLike(trimVal)) thoughtType.textContent = 'Calendar';
+    else if (/^https?:\/\//i.test(trimVal)) thoughtType.textContent = 'Archive';
+    else {
+      const first = trimVal.split(/\s+/)[0].toLowerCase();
+      if (loadedWorkflows && loadedWorkflows.find(w => w.name.toLowerCase() === first)) {
         thoughtType.textContent = 'Workflow';
-        return;
+      } else {
+        thoughtType.textContent = 'Thought';
       }
     }
-
-    if (isCalendarLike(trimVal)) thoughtType.textContent = 'Calendar';
-    else if (val.startsWith('/')) thoughtType.textContent = 'Workflow';
-    else if (/^https?:\/\//i.test(trimVal)) thoughtType.textContent = 'Archive';
-    else thoughtType.textContent = 'Thought';
   }
 
   function renderFileResults() {

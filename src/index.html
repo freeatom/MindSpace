@@ -148,6 +148,14 @@
           </svg>
           <span>Notes</span>
         </button>
+        <button class="sidebar-btn" data-view="clipboard" id="nav-clipboard" aria-label="Clipboard">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+          </svg>
+          <span>Clipboard</span>
+          <span id="clipboard-badge" class="sidebar-badge" style="display:none;">0</span>
+        </button>
         <button class="sidebar-btn" data-view="calendar" id="nav-calendar" aria-label="Calendar">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -157,20 +165,13 @@
           </svg>
           <span>Calendar</span>
         </button>
-        <button class="sidebar-btn" data-view="tools" id="nav-tools" aria-label="Tools">
+        <button class="sidebar-btn" data-view="tools" id="nav-tools" aria-label="Tools" style="display: none;">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
           </svg>
           <span>Tools</span>
         </button>
-        <button class="sidebar-btn" data-view="clipboard" id="nav-clipboard" aria-label="Clipboard">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-          </svg>
-          <span>Clipboard</span>
-          <span id="clipboard-badge" class="sidebar-badge" style="display:none;">0</span>
-        </button>
+
         <button class="sidebar-btn" data-view="braindump" id="nav-braindump" aria-label="Brain Dump">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"></path>
@@ -396,6 +397,7 @@
           <div id="notes-modal-dates" class="notes-modal-dates" style="display:none;"></div>
           <div class="notes-modal-actions quickadd-actions">
             <button id="notes-modal-delete" class="notes-modal-delete" style="display:none;">Delete</button>
+            <button id="notes-modal-edit" class="btn btn-secondary" style="display:none;">Edit Note</button>
             <button id="notes-modal-save" class="btn btn-primary">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
@@ -789,18 +791,10 @@
               </div>
             </div>
 
-            <!-- Workflows & Macros -->
-            <div class="settings-section">
-              <div class="settings-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-                <h3 class="settings-section-title" style="margin-bottom: 0;">Workflows & Macros</h3>
-                <button id="workflow-add-btn" class="btn btn-primary" style="padding: 6px 14px; font-size: var(--font-size-sm);">+ Add Workflow</button>
-              </div>
-              <div id="workflows-list" class="workflows-list"></div>
-            </div>
 
-            <!-- AI Configuration -->
+            <!-- AI Chat Assistant Configuration -->
             <div class="settings-section">
-              <h3 class="settings-section-title">AI Assistant</h3>
+              <h3 class="settings-section-title">AI Chat Assistant</h3>
               <p style="font-size: 13px; color: var(--text-muted); margin-bottom: var(--space-md);">
                 Powers <strong>Alt+Space → AI Chat</strong>, Commander (Ctrl+K), Brain Dump, and Auto-Tag.
                 Keys are stored locally on your machine only.
@@ -814,20 +808,68 @@
                   <option value="openai">OpenAI</option>
                 </select>
               </div>
-              <div class="settings-group">
-                <label class="setting-label" for="setting-aiApiKey">API Key</label>
-                <input type="password" id="setting-aiApiKey" class="setting-input" placeholder="gsk_... or sk-..." style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
+              <div class="settings-group" style="margin-bottom: 12px;">
+                <label class="setting-label">API Keys</label>
+                
+                <div style="display: flex; gap: 16px; margin-bottom: 8px; font-size: 13px; color: var(--text-primary);">
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="setting-aiActiveKeyIndex" value="0" checked />
+                    Use Primary Key
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="setting-aiActiveKeyIndex" value="1" />
+                    Use Secondary Key
+                  </label>
+                </div>
+
+                <input type="password" id="setting-aiApiKey" class="setting-input" placeholder="Primary API Key (gsk_... or sk-...)" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-bottom: 8px;" />
+                <input type="password" id="setting-aiApiKeySecondary" class="setting-input" placeholder="Secondary API Key (Fallback)" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary);" />
               </div>
+
+              <div class="setting-row" style="margin-bottom: 12px;">
+                <div class="setting-info">
+                  <span class="setting-label">Auto-Fallback on Rate Limit</span>
+                  <span class="setting-desc">Automatically switch to secondary key when primary hits rate limits (429)</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-aiAutoFallback" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
               <div class="settings-group">
-                <label class="setting-label" for="setting-aiModel">Model (Optional)</label>
+                <label class="setting-label" for="setting-aiModel">Chat Model</label>
                 <input type="text" id="setting-aiModel" class="setting-input" placeholder="e.g. llama-3.3-70b-versatile" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-                <button id="setting-save-ai" class="btn btn-primary">Save AI Settings</button>
+                <button id="setting-save-ai" class="btn btn-primary">Save Chat Settings</button>
                 <button id="setting-test-ai" class="btn btn-outline" type="button">Test Connection</button>
-                <button id="setting-remove-ai-key" class="btn btn-outline" type="button">Remove API Key</button>
+                <button id="setting-remove-ai-key" class="btn btn-outline" type="button">Remove API Keys</button>
               </div>
               <p id="setting-ai-status" style="font-size:12px; margin-top:8px; min-height:18px; color:var(--text-muted);"></p>
+            </div>
+
+            <!-- Speech-to-Text (Whispr) Configuration -->
+            <div class="settings-section">
+              <h3 class="settings-section-title">Speech-to-Text (Whispr)</h3>
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: var(--space-md);">
+                Powers voice input via <strong>Right Shift (Push-to-Talk)</strong> and the mic button in Spotlight.
+                Uses Groq's Whisper API. If no key is set, falls back to the Chat API key above.
+              </p>
+              <div class="settings-group" style="margin-bottom: 12px;">
+                <label class="setting-label" for="setting-whisprApiKey">Groq API Key for Whispr</label>
+                <input type="password" id="setting-whisprApiKey" class="setting-input" placeholder="Groq API Key (gsk_...) — leave blank to use Chat key" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary);" />
+              </div>
+              <div class="settings-group">
+                <label class="setting-label" for="setting-aiWhisprModel">Whisper Model</label>
+                <input type="text" id="setting-aiWhisprModel" class="setting-input" placeholder="whisper-large-v3-turbo" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; font-family:var(--font-family); background:var(--bg-primary); color:var(--text-primary); margin-top:5px;" />
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                <button id="setting-save-whispr" class="btn btn-primary">Save Whispr Settings</button>
+                <button id="setting-test-whispr" class="btn btn-outline" type="button">Test Whispr</button>
+                <button id="setting-remove-whispr-key" class="btn btn-outline" type="button">Remove Whispr Key</button>
+              </div>
+              <p id="setting-whispr-status" style="font-size:12px; margin-top:8px; min-height:18px; color:var(--text-muted);"></p>
             </div>
 
             <!-- Security Section -->
@@ -867,10 +909,10 @@
               </div>
             </div>
 
-            <!-- Workflows Section -->
+            <!-- Workflows & Macros Section -->
             <div class="settings-section">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-                <h3 class="settings-section-title" style="margin-bottom: 0;">Commander Workflows</h3>
+                <h3 class="settings-section-title" style="margin-bottom: 0;">Workflows & Macros</h3>
                 <button id="workflow-add-btn" class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">+ Add Workflow</button>
               </div>
               <p style="font-size: 13px; color: var(--text-muted);">
@@ -1126,8 +1168,33 @@
         <button id="workflow-add-step-btn" class="workflow-add-step">+ Add Step</button>
       </div>
 
-      <div class="quickadd-actions" style="margin-top: 24px;">
+      <div id="workflow-ai-box" class="workflow-ai-box">
+        <div class="workflow-ai-header">
+          <span class="workflow-ai-title">✨ Generate Step</span>
+          <button id="workflow-ai-close-btn" class="workflow-ai-close">✕</button>
+        </div>
+        <div class="workflow-ai-chips">
+          <button class="workflow-ai-chip" data-script="code .">VS Code</button>
+          <button class="workflow-ai-chip" data-script="start spotify:">Spotify</button>
+          <button class="workflow-ai-chip" data-script="start msteams:">MS Teams</button>
+          <button class="workflow-ai-chip" data-script="start antigravity:">Antigravity</button>
+        </div>
+        <div class="workflow-ai-input-group">
+          <input type="text" id="workflow-ai-input" placeholder="e.g. open Notion" />
+          <button id="workflow-ai-generate-btn" class="btn btn-primary btn-sm">Ask AI</button>
+        </div>
+        <div id="workflow-ai-result-area" class="workflow-ai-result-area" style="display: none;">
+          <pre id="workflow-ai-result-code"></pre>
+          <div class="workflow-ai-result-actions">
+            <button id="workflow-ai-test-btn" class="btn btn-outline btn-sm">Test</button>
+            <button id="workflow-ai-use-btn" class="btn btn-primary btn-sm">Use</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="quickadd-actions" style="margin-top: 24px; display: flex; gap: 10px;">
         <button id="workflow-save-btn" class="btn btn-primary">Save Workflow</button>
+        <button id="workflow-ai-create-btn" class="btn btn-outline">✨ AI Create</button>
       </div>
     </div>
   </div>

@@ -7,6 +7,7 @@
 /* ─── Canvas Container ─── */
 #canvas-view {
   flex-direction: column;
+  position: relative;
 }
 
 .canvas {
@@ -62,7 +63,7 @@
 .priority-zone-high {
   top: 24px;
   left: 24px;
-  width: calc(33.33% - 32px);
+  width: calc(31vw - 20px);
   height: calc(100% - 48px);
   background: linear-gradient(135deg, rgba(248,113,113,0.04) 0%, transparent 60%);
   border: 1.5px dashed rgba(248,113,113,0.15);
@@ -70,8 +71,8 @@
 
 .priority-zone-medium {
   top: 24px;
-  left: calc(33.33% + 8px);
-  width: calc(33.33% - 32px);
+  left: calc(31vw + 24px);
+  width: calc(31vw - 20px);
   height: calc(100% - 48px);
   background: linear-gradient(135deg, rgba(251,191,36,0.04) 0%, transparent 60%);
   border: 1.5px dashed rgba(251,191,36,0.15);
@@ -79,8 +80,8 @@
 
 .priority-zone-low {
   top: 24px;
-  left: calc(66.66% + 8px);
-  width: calc(33.33% - 32px);
+  left: calc(62vw + 24px);
+  width: calc(31vw - 20px);
   height: calc(100% - 48px);
   background: linear-gradient(135deg, rgba(52,211,153,0.04) 0%, transparent 60%);
   border: 1.5px dashed rgba(52,211,153,0.15);
@@ -140,15 +141,24 @@
   letter-spacing: 0.08em;
   border-radius: var(--radius-full);
   margin-bottom: var(--space-sm);
-  animation: pulse 2s ease-in-out infinite;
 }
 
 .now-pulse {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   background: #fff;
   border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes now-badge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 82, 240, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(91, 82, 240, 0); }
+}
+
+@keyframes now-dot-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
 /* ─── Thought Number ─── */
@@ -343,8 +353,20 @@
 
 /* ─── Finished Stack ─── */
 .finished-stack {
-  border-top: 1px solid var(--border-color-light);
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color-light);
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: var(--bg-secondary);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
+  z-index: 90;
 }
 
 .finished-toggle {
@@ -630,19 +652,59 @@
   font-style: italic;
 }
 
-/* ─── Individual Comment ─── */
+/* ─── Individual Comment (Timeline Item) ─── */
 .comment-item {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-color-light);
+  position: relative;
+  padding: 4px 14px 6px 28px;
   transition: background var(--transition-fast);
 }
 
-.comment-item:last-child {
-  border-bottom: none;
+.comment-item::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 17px;
+  bottom: -9px;
+  width: 2px;
+  background: var(--border-color-light);
+  z-index: 1;
 }
 
-.comment-item:hover {
+.comment-item:last-child {
+  padding-bottom: 8px;
+}
+
+.comment-item:last-child::before {
+  display: none;
+}
+
+.timeline-node {
+  position: absolute;
+  left: 11px;
+  top: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  z-index: 2;
+  box-shadow: 0 0 0 4px var(--bg-secondary);
+}
+
+.comment-item.latest-comment .timeline-node {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 4px var(--bg-secondary), 0 0 0 2px rgba(16, 185, 129, 0.4);
+}
+
+.comment-content-wrapper {
   background: var(--bg-primary);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color-light);
+}
+
+.comment-item:hover .comment-content-wrapper {
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
 }
 
 .comment-text {

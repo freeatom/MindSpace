@@ -158,7 +158,7 @@
   padding: var(--space-md) var(--space-lg);
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-base);
-  animation: slideUp 0.25s ease;
+  animation: slideUp 0.25s ease both;
   position: relative;
 }
 

@@ -163,6 +163,7 @@
         pillDots.style.display = 'none';
         pillTimer.style.display = '';
         startTime = Date.now();
+        if (timerInterval) clearInterval(timerInterval);
         timerInterval = setInterval(updateTimer, 1000);
         // Animate in
         pill.classList.remove('visible');
@@ -173,22 +174,31 @@
         waveBars.style.display = 'none';
         pillDots.style.display = 'inline-flex';
         pillTimer.style.display = 'none';
-        clearInterval(timerInterval);
+        if (timerInterval) clearInterval(timerInterval);
+        // Ensure pill is visible for transcribing state too
+        if (!pill.classList.contains('visible')) {
+          pill.classList.add('visible');
+        }
       } else if (state === 'done') {
         pill.classList.remove('visible');
-        clearInterval(timerInterval);
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = null;
         startTime = null;
       } else if (state === 'error') {
         pillText.textContent = 'Error';
         waveBars.style.display = 'none';
         pillDots.style.display = 'none';
         pillTimer.style.display = 'none';
-        clearInterval(timerInterval);
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = null;
         setTimeout(() => {
           pill.classList.remove('visible');
         }, 2000);
       }
     });
+
+    // Signal to main process that the pill is ready to receive state messages
+    ipcRenderer.send('whispr-pill-ready');
   </script>
 </body>
 </html>

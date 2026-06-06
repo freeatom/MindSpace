@@ -46,7 +46,7 @@ const Settings = {
       document.getElementById('setting-canvasZoom-label').textContent = `${zoom.value}%`;
     }
 
-    // AI Config
+    // ─── AI Chat Config ───
     const aiProvider = document.getElementById('setting-aiProvider');
     if (aiProvider) aiProvider.value = this.cache.aiProvider || 'groq';
     this.updateModelPlaceholder();
@@ -54,8 +54,25 @@ const Settings = {
     const aiApiKey = document.getElementById('setting-aiApiKey');
     if (aiApiKey) aiApiKey.value = this.cache.aiApiKey || '';
 
+    const aiApiKeySecondary = document.getElementById('setting-aiApiKeySecondary');
+    if (aiApiKeySecondary) aiApiKeySecondary.value = this.cache.aiApiKeySecondary || '';
+
+    const activeKeyIndex = this.cache.aiActiveKeyIndex || 0;
+    const radios = document.querySelectorAll('input[name="setting-aiActiveKeyIndex"]');
+    radios.forEach(r => r.checked = (parseInt(r.value) === activeKeyIndex));
+
     const aiModel = document.getElementById('setting-aiModel');
     if (aiModel) aiModel.value = this.cache.aiModel || '';
+
+    const autoFallback = document.getElementById('setting-aiAutoFallback');
+    if (autoFallback) autoFallback.checked = this.cache.aiAutoFallback === true;
+
+    // ─── Whispr Config ───
+    const whisprApiKey = document.getElementById('setting-whisprApiKey');
+    if (whisprApiKey) whisprApiKey.value = this.cache.whisprApiKey || '';
+
+    const aiWhisprModel = document.getElementById('setting-aiWhisprModel');
+    if (aiWhisprModel) aiWhisprModel.value = this.cache.aiWhisprModel || '';
   },
 
   bindEvents() {
@@ -67,7 +84,7 @@ const Settings = {
       });
     });
 
-    // Auto-save checkboxes
+    // Auto-save checkboxes (excluding AI-specific ones handled separately)
     document.querySelectorAll('.toggle-switch input').forEach((el) => {
       el.addEventListener('change', () => {
         const key = el.id.replace('setting-', '');
@@ -105,27 +122,51 @@ const Settings = {
       });
     }
 
-    // AI Config Save
+    // ─── AI Chat Config Events ───
     const saveAiBtn = document.getElementById('setting-save-ai');
     if (saveAiBtn) {
       saveAiBtn.addEventListener('click', async () => {
-        await this.persistAiSettings(saveAiBtn);
+        await this.persistChatSettings(saveAiBtn);
       });
     }
 
     const testAiBtn = document.getElementById('setting-test-ai');
     if (testAiBtn) {
-      testAiBtn.addEventListener('click', () => this.testAiConnection());
+      testAiBtn.addEventListener('click', () => this.testChatConnection());
     }
 
     const removeAiBtn = document.getElementById('setting-remove-ai-key');
     if (removeAiBtn) {
-      removeAiBtn.addEventListener('click', () => this.removeAiKey());
+      removeAiBtn.addEventListener('click', () => this.removeChatKeys());
     }
 
     const aiProviderEl = document.getElementById('setting-aiProvider');
     if (aiProviderEl) {
       aiProviderEl.addEventListener('change', () => this.updateModelPlaceholder());
+    }
+
+    document.querySelectorAll('input[name="setting-aiActiveKeyIndex"]').forEach(el => {
+      el.addEventListener('change', () => {
+        this.save('aiActiveKeyIndex', parseInt(el.value));
+      });
+    });
+
+    // ─── Whispr Config Events ───
+    const saveWhisprBtn = document.getElementById('setting-save-whispr');
+    if (saveWhisprBtn) {
+      saveWhisprBtn.addEventListener('click', async () => {
+        await this.persistWhisprSettings(saveWhisprBtn);
+      });
+    }
+
+    const testWhisprBtn = document.getElementById('setting-test-whispr');
+    if (testWhisprBtn) {
+      testWhisprBtn.addEventListener('click', () => this.testWhisprConnection());
+    }
+
+    const removeWhisprBtn = document.getElementById('setting-remove-whispr-key');
+    if (removeWhisprBtn) {
+      removeWhisprBtn.addEventListener('click', () => this.removeWhisprKey());
     }
   },
 
@@ -150,26 +191,50 @@ const Settings = {
     el.style.color = isError ? 'var(--priority-high, #ef4444)' : 'var(--text-muted)';
   },
 
-  async persistAiSettings(btn) {
-    const saveAiBtn = btn || document.getElementById('setting-save-ai');
-    if (saveAiBtn) saveAiBtn.textContent = 'Saving...';
+  setWhisprStatus(message, isError) {
+    const el = document.getElementById('setting-whispr-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.color = isError ? 'var(--priority-high, #ef4444)' : 'var(--text-muted)';
+  },
+
+  // ─── Chat Settings ───
+
+  async persistChatSettings(btn) {
+    const saveBtn = btn || document.getElementById('setting-save-ai');
+    if (saveBtn) saveBtn.textContent = 'Saving...';
+
     await this.save('aiProvider', document.getElementById('setting-aiProvider').value);
     await this.save('aiApiKey', document.getElementById('setting-aiApiKey').value);
+    await this.save('aiApiKeySecondary', document.getElementById('setting-aiApiKeySecondary')?.value || '');
     await this.save('aiModel', document.getElementById('setting-aiModel').value);
-    this.setAiStatus('Settings saved locally.');
-    if (saveAiBtn) {
+
+    const autoFallback = document.getElementById('setting-aiAutoFallback');
+    if (autoFallback) await this.save('aiAutoFallback', autoFallback.checked);
+
+    const activeRadio = document.querySelector('input[name="setting-aiActiveKeyIndex"]:checked');
+    if (activeRadio) await this.save('aiActiveKeyIndex', parseInt(activeRadio.value));
+
+    this.setAiStatus('Chat settings saved locally.');
+    if (saveBtn) {
       setTimeout(() => {
-        saveAiBtn.textContent = '✓ Saved';
-        setTimeout(() => { saveAiBtn.textContent = 'Save AI Settings'; }, 2000);
+        saveBtn.textContent = '✓ Saved';
+        setTimeout(() => { saveBtn.textContent = 'Save Chat Settings'; }, 2000);
       }, 300);
     }
   },
 
-  async testAiConnection() {
+  async testChatConnection() {
     const provider = document.getElementById('setting-aiProvider').value;
-    const apiKey = document.getElementById('setting-aiApiKey').value;
     const model = document.getElementById('setting-aiModel').value;
     const testBtn = document.getElementById('setting-test-ai');
+
+    const primaryKey = document.getElementById('setting-aiApiKey').value;
+    const secondaryKey = document.getElementById('setting-aiApiKeySecondary')?.value || '';
+    const activeRadio = document.querySelector('input[name="setting-aiActiveKeyIndex"]:checked');
+    const activeIndex = activeRadio ? parseInt(activeRadio.value) : 0;
+    
+    const apiKey = (activeIndex === 1 && secondaryKey.trim()) ? secondaryKey : primaryKey;
 
     if (!apiKey?.trim()) {
       this.setAiStatus('Enter an API key first.', true);
@@ -183,7 +248,7 @@ const Settings = {
     this.setAiStatus('Validating API key...');
 
     try {
-      await this.persistAiSettings();
+      await this.persistChatSettings();
       const result = await window.electronAPI.testAiConnection({ provider, apiKey, model });
       if (result.ok) {
         this.setAiStatus('Connection successful. Chat is ready.');
@@ -200,12 +265,85 @@ const Settings = {
     }
   },
 
-  async removeAiKey() {
-    if (!confirm('Remove the stored API key? Chat and AI features will require a new key.')) return;
+  async removeChatKeys() {
+    if (!confirm('Remove the stored Chat API keys? Chat and AI features will require new keys.')) return;
     document.getElementById('setting-aiApiKey').value = '';
+    document.getElementById('setting-aiApiKeySecondary').value = '';
     await this.save('aiApiKey', '');
-    this.setAiStatus('API key removed.');
+    await this.save('aiApiKeySecondary', '');
+    this.setAiStatus('Chat API keys removed.');
   },
+
+  // ─── Whispr Settings ───
+
+  async persistWhisprSettings(btn) {
+    const saveBtn = btn || document.getElementById('setting-save-whispr');
+    if (saveBtn) saveBtn.textContent = 'Saving...';
+
+    await this.save('whisprApiKey', document.getElementById('setting-whisprApiKey')?.value || '');
+    await this.save('aiWhisprModel', document.getElementById('setting-aiWhisprModel')?.value || '');
+
+    this.setWhisprStatus('Whispr settings saved locally.');
+    if (saveBtn) {
+      setTimeout(() => {
+        saveBtn.textContent = '✓ Saved';
+        setTimeout(() => { saveBtn.textContent = 'Save Whispr Settings'; }, 2000);
+      }, 300);
+    }
+  },
+
+  async testWhisprConnection() {
+    const testBtn = document.getElementById('setting-test-whispr');
+    const whisprKey = document.getElementById('setting-whisprApiKey')?.value || '';
+
+    // Resolve the key: use dedicated Whispr key, or fall back to active Chat key
+    let apiKey = whisprKey.trim();
+    if (!apiKey) {
+      const primaryKey = document.getElementById('setting-aiApiKey')?.value || '';
+      const secondaryKey = document.getElementById('setting-aiApiKeySecondary')?.value || '';
+      const activeRadio = document.querySelector('input[name="setting-aiActiveKeyIndex"]:checked');
+      const activeIndex = activeRadio ? parseInt(activeRadio.value) : 0;
+      apiKey = (activeIndex === 1 && secondaryKey.trim()) ? secondaryKey : primaryKey;
+    }
+
+    if (!apiKey?.trim()) {
+      this.setWhisprStatus('Enter a Whispr API key or Chat API key first.', true);
+      return;
+    }
+
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+    }
+    this.setWhisprStatus('Validating Whispr key with Groq...');
+
+    try {
+      await this.persistWhisprSettings();
+      const result = await window.electronAPI.testWhisprConnection({ apiKey });
+      if (result.ok) {
+        this.setWhisprStatus('Whispr connection successful. Speech-to-text is ready.');
+      } else {
+        this.setWhisprStatus(result.error || 'Whispr test failed.', true);
+      }
+    } catch (err) {
+      this.setWhisprStatus(err.message || 'Whispr test failed.', true);
+    } finally {
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Whispr';
+      }
+    }
+  },
+
+  async removeWhisprKey() {
+    if (!confirm('Remove the Whispr API key? Speech-to-text will fall back to using the Chat key.')) return;
+    const el = document.getElementById('setting-whisprApiKey');
+    if (el) el.value = '';
+    await this.save('whisprApiKey', '');
+    this.setWhisprStatus('Whispr API key removed. Will use Chat key as fallback.');
+  },
+
+  // ─── Core ───
 
   async save(key, value) {
     this.cache[key] = value;
@@ -229,6 +367,14 @@ const Settings = {
 
   get(key) {
     return this.cache[key];
+  },
+
+  /** Resolve the active Chat API key (respecting primary/secondary selection) */
+  getActiveChatApiKey() {
+    const primaryKey = this.cache.aiApiKey || '';
+    const secondaryKey = this.cache.aiApiKeySecondary || '';
+    const activeIndex = this.cache.aiActiveKeyIndex || 0;
+    return (activeIndex === 1 && secondaryKey.trim()) ? secondaryKey : primaryKey;
   },
 
   openPasswordModal() {

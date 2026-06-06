@@ -78,7 +78,8 @@ const store = {
       'canvasZoom', 'autoArchiveExpired', 'showFinishedOnCanvas',
       'defaultPriority', 'defaultPersistence', 'compactCards',
       'showThoughtNumbers', 'animationsEnabled',
-      'aiProvider', 'aiApiKey', 'aiModel',
+      'aiProvider', 'aiApiKey', 'aiApiKeySecondary', 'aiActiveKeyIndex', 'aiModel',
+      'whisprApiKey', 'aiWhisprModel', 'aiAutoFallback',
     ];
     const result = {};
     for (const key of keys) {

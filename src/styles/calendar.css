@@ -577,7 +577,7 @@
 /* FAB Add Event */
 #fab-add-event {
   position: fixed;
-  bottom: 88px;
+  bottom: 108px;
   right: var(--space-xl);
   width: 48px;
   height: 48px;
