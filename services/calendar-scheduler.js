@@ -1,4 +1,5 @@
-const { Notification } = require('electron');
+const notifier = require('node-notifier');
+const path = require('path');
 const calendarStore = require('./calendar-store');
 
 class CalendarScheduler {
@@ -6,6 +7,18 @@ class CalendarScheduler {
     this.getMainWindow = getMainWindow;
     this.timers = new Map();
     this.pollInterval = null;
+
+    notifier.on('click', (notifierObject, options, e) => {
+      const win = this.getMainWindow();
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        if (options && options.mindspaceEventId) {
+          win.webContents.send('calendar-open-event', { eventId: options.mindspaceEventId });
+        }
+      }
+    });
   }
 
   async start() {
@@ -95,7 +108,6 @@ class CalendarScheduler {
   }
 
   showNativeNotification(event, type) {
-    if (!Notification.isSupported()) return;
     const label = type === 'start' ? 'Starting now' : 'Reminder';
     const isThought = event.source_type === 'thought';
     const title = isThought
@@ -104,21 +116,16 @@ class CalendarScheduler {
     const bodyLines = [`${event.event_date} at ${event.event_time}`];
     if (isThought) bodyLines.push('📌 From your captured thoughts');
     if (event.event_description) bodyLines.push(event.event_description.slice(0, 120));
-    const n = new Notification({
-      title,
-      body: bodyLines.join('\n'),
-      urgency: event.priority === 'high' ? 'critical' : 'normal',
+    
+    notifier.notify({
+      title: title,
+      message: bodyLines.join('\n'),
+      icon: path.join(__dirname, '..', 'src', 'assets', 'icon.png'),
+      sound: true,
+      wait: true,
+      appID: 'MindSpace',
+      mindspaceEventId: event._id
     });
-    n.on('click', () => {
-      const win = this.getMainWindow();
-      if (win && !win.isDestroyed()) {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-        win.webContents.send('calendar-open-event', { eventId: event._id });
-      }
-    });
-    n.show();
   }
 
   async snooze(eventId, minutes) {

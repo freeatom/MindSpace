@@ -558,8 +558,10 @@
         }
       }
 
+      const generatedId = 't_' + Date.now() + Math.random().toString(36).substr(2, 9);
       // Save thought
       const thoughtData = {
+        id: generatedId,
         content: val,
         priority: selectedPriority,
         persistence: selectedPersistence,
@@ -571,6 +573,7 @@
       if (selectedPersistence === 'today' || selectedPersistence === 'until_date') {
         try {
           const result = await window.spotlightAPI.createCalendarFromThought({
+            id: generatedId,
             content: val,
             priority: selectedPriority,
             persistence: selectedPersistence,
@@ -988,6 +991,8 @@
       if (chatSessionTitle) chatSessionTitle.textContent = title;
     }
 
+    rawStreamContent = ''; // reset stream content
+
     const wrap = document.createElement('div');
     wrap.className = 'msg-ai-wrap';
     wrap.innerHTML = `
@@ -1006,25 +1011,40 @@
     streamingBubble = document.getElementById('streaming-bubble');
     scrollChat();
 
+    const coreMemory = await window.spotlightAPI.getMemory();
     const messages = [
-      { role: 'system', content: CHAT_SYSTEM },
-      ...chatHistory.slice(-20),
+      { role: 'system', content: CHAT_SYSTEM }
     ];
+    if (coreMemory) {
+      messages.push({ role: 'system', content: `[ACTIVE MEMORY INJECTED - USE THIS FOR PERSONALIZED CONTEXT]:\n${coreMemory}` });
+    }
+    messages.push(...chatHistory.slice(-20));
 
     let assistantText = '';
     try {
       if (aiConfig.supportsStream) {
         await window.spotlightAPI.chat({ messages, stream: true });
-        assistantText = streamingBubble?.textContent || '';
+        assistantText = rawStreamContent || '';
       } else {
         const res = await window.spotlightAPI.chat({ messages, stream: false });
         assistantText = res.content || '';
-        if (streamingBubble) streamingBubble.textContent = assistantText;
+        // If not streaming, we still want to parse the final markdown
+        rawStreamContent = assistantText;
+        appendStreamingChunk(''); 
       }
       if (!assistantText) assistantText = '(No response)';
       streamingBubble?.classList.remove('streaming');
       streamingBubble?.removeAttribute('id');
-      chatHistory.push({ role: 'assistant', content: assistantText });
+      
+      // Strip the injected thinking blocks so the LLM doesn't hallucinate markdown tool calls in the future
+      let cleanAssistantText = assistantText
+        .replace(/> 🧠 \*\*Thinking\*\*: \*[\s\S]*?\*(?:\r?\n)?/g, '')
+        .replace(/> 🛠️ \*\*Action\*\*: \*[\s\S]*?\*(?:\r?\n)?/g, '')
+        .trim();
+      
+      if (!cleanAssistantText) cleanAssistantText = '(Tool execution completed)';
+
+      chatHistory.push({ role: 'assistant', content: cleanAssistantText });
 
       wrap.querySelector('.act-copy')?.addEventListener('click', () => {
         navigator.clipboard.writeText(assistantText);
@@ -1180,9 +1200,47 @@
   chatHistoryBtn?.addEventListener('click', toggleChatHistory);
   chatHistoryClose?.addEventListener('click', closeChatHistory);
 
+  let rawStreamContent = '';
+
+  function parseMarkdownAndThoughts(text) {
+    let html = escapeHtml(text);
+    let detailsBlocks = '';
+    let stepCount = 0;
+    
+    const blockRegex = /&gt; (🧠 \*\*Thinking\*\*: \*(.*?)\*|🛠️ \*\*Action\*\*: \*(.*?)\*)(?:\n|<br>|\s)*/g;
+    
+    html = html.replace(blockRegex, (match, full, thinkText, actionText) => {
+      stepCount++;
+      if (thinkText !== undefined) {
+         detailsBlocks += `<div style="border-left: 2px solid var(--border-focus); padding-left: 8px; margin-bottom: 4px;"><b>Thinking:</b> <i>${thinkText}</i></div>`;
+      } else if (actionText !== undefined) {
+         detailsBlocks += `<div style="border-left: 2px solid var(--accent); padding-left: 8px; color: var(--accent-text); margin-bottom: 8px;"><b>Action:</b> <i>${actionText}</i></div>`;
+      }
+      return '';
+    });
+    
+    html = html.replace(/^(<br>|\n|\s)+/, '').replace(/(<br>|\n|\s)+$/, '');
+    
+    let header = '';
+    if (stepCount > 0) {
+      header = `<details style="margin-bottom: 12px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;">
+        <summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-sub); user-select: none;">🧠 AI Reasoning (${stepCount} steps)</summary>
+        <div style="margin-top: 8px; font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column;">
+          ${detailsBlocks}
+        </div>
+      </details>`;
+    }
+    
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+    html = html.replace(/\n/g, '<br>');
+    
+    return header + html;
+  }
+
   function appendStreamingChunk(chunk) {
     if (streamingBubble) {
-      streamingBubble.textContent += chunk;
+      rawStreamContent += chunk;
+      streamingBubble.innerHTML = parseMarkdownAndThoughts(rawStreamContent);
       scrollChat();
     }
   }
@@ -1198,13 +1256,16 @@
   function appendAssistantMessage(text) {
     const wrap = document.createElement('div');
     wrap.className = 'msg-ai-wrap';
+    
+    let html = parseMarkdownAndThoughts(text);
+
     wrap.innerHTML = `
       <div class="msg-meta">
         <div class="model-icon">G</div>
         <span>${escapeHtml(modelLabel.textContent)}</span>
         <span style="margin-left:auto">${formatTime()}</span>
       </div>
-      <div class="msg-ai">${escapeHtml(text)}</div>
+      <div class="msg-ai">${html}</div>
     `;
     chatMessages.appendChild(wrap);
     scrollChat();

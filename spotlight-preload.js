@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   getChatSessions: () => ipcRenderer.invoke('spotlight-chat-get-all'),
   deleteChatSession: (id) => ipcRenderer.invoke('spotlight-chat-delete', id),
 
+  // Memory
+  getMemory: () => ipcRenderer.invoke('spotlight-get-memory'),
+
   // Thought Stack
   getRecentThoughts: () => ipcRenderer.invoke('spotlight-get-recent-thoughts'),
   openThought: (id) => ipcRenderer.send('spotlight-open-thought', id),

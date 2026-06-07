@@ -13,8 +13,9 @@
     "electron": "^33.0.0"
   },
   "dependencies": {
-    "nedb-promises": "^6.2.3",
     "bcryptjs": "^2.4.3",
-    "interactjs": "^1.10.27"
+    "interactjs": "^1.10.27",
+    "nedb-promises": "^6.2.3",
+    "node-notifier": "^10.0.1"
   }
 }

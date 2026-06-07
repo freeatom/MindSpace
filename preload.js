@@ -7,7 +7,7 @@ const crypto = require('crypto');
 // We expose the store operations directly through the preload bridge
 // since nedb and bcrypt need Node.js APIs
 
-let thoughts, tags, settings, archives, tools, clipboardHistory, workflows;
+let thoughts, tags, settings, archives, tools, clipboardHistory, workflows, memories;
 let dbReady = false;
 let sessionKey = null; // Derived dynamically on login, kept only in-memory
 
@@ -107,6 +107,11 @@ async function initDB(userDataPath) {
     autoload: true,
   });
 
+  memories = Datastore.create({
+    filename: path.join(dbPath, 'memories.db'),
+    autoload: true,
+  });
+
   dbReady = true;
 }
 
@@ -125,6 +130,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   initDB: async () => {
     const userDataPath = await ipcRenderer.invoke('get-user-data-path');
     await initDB(userDataPath);
+  },
+
+  // Memory
+  getMemory: async () => {
+    if (!dbReady || !memories) return '';
+    const memDoc = await memories.findOne({ _id: 'core_memory' });
+    if (!memDoc || !memDoc.content) return '';
+    if (sessionKey && memDoc.iv) {
+      return decryptText(memDoc.content, memDoc.iv, memDoc.tag, sessionKey);
+    }
+    return memDoc.content;
+  },
+  updateMemory: async (content) => {
+    if (!dbReady || !memories) return false;
+    let doc = { content, updatedAt: new Date().toISOString() };
+    if (sessionKey) {
+      const encrypted = encryptText(content, sessionKey);
+      doc.content = encrypted.ciphertext;
+      doc.iv = encrypted.iv;
+      doc.tag = encrypted.tag;
+    }
+    await memories.update({ _id: 'core_memory' }, { $set: doc }, { upsert: true });
+    return true;
   },
 
   // Settings
@@ -429,6 +457,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onCalendarNotification: (callback) => ipcRenderer.on('calendar-notification', (e, data) => callback(data)),
   onCalendarOpenEvent: (callback) => ipcRenderer.on('calendar-open-event', (e, data) => callback(data)),
   onCalendarOpenEventModal: (callback) => ipcRenderer.on('calendar-open-event-modal', (e, data) => callback(data)),
+  onCalendarRefresh: (callback) => ipcRenderer.on('calendar-refresh', () => callback()),
+  onThoughtRefresh: (callback) => ipcRenderer.on('thought-refresh', () => callback()),
 
   // Whispr (speech-to-text)
   onWhisprToggle: (callback) => ipcRenderer.on('whispr-toggle', (e, recording) => callback(recording)),
@@ -437,6 +467,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   whisprToggleFromRenderer: () => ipcRenderer.send('whispr-toggle-from-renderer'),
 });
 // Listen for requests from Spotlight for decrypted thoughts
+ipcRenderer.on('spotlight-request-memory', async (e, replyChannel) => {
+  if (!dbReady || !memories) {
+    ipcRenderer.send(replyChannel, '');
+    return;
+  }
+  try {
+    const memDoc = await memories.findOne({ _id: 'core_memory' });
+    if (!memDoc || !memDoc.content) {
+      ipcRenderer.send(replyChannel, '');
+      return;
+    }
+    if (sessionKey && memDoc.iv) {
+      ipcRenderer.send(replyChannel, decryptText(memDoc.content, memDoc.iv, memDoc.tag, sessionKey));
+    } else {
+      ipcRenderer.send(replyChannel, memDoc.content);
+    }
+  } catch (err) {
+    console.error('Error fetching memory for Spotlight:', err);
+    ipcRenderer.send(replyChannel, '');
+  }
+});
+
 ipcRenderer.on('spotlight-request-recent-thoughts', async (e, replyChannel) => {
   if (!dbReady || !thoughts) {
     ipcRenderer.send(replyChannel, []);
@@ -494,5 +546,93 @@ ipcRenderer.on('spotlight-request-recent-thoughts', async (e, replyChannel) => {
   } catch (err) {
     console.error('Error fetching recent thoughts for Spotlight:', err);
     ipcRenderer.send(replyChannel, []);
+  }
+});
+
+// --- AI Assistant Data Handlers (Requires Decryption) ---
+
+ipcRenderer.on('spotlight-ai-search-thoughts', async (e, { query, replyChannel }) => {
+  if (!dbReady || !thoughts) {
+    ipcRenderer.send(replyChannel, []);
+    return;
+  }
+  try {
+    const passwordSet = await settings.findOne({ key: 'passwordHash' });
+    if (passwordSet && !sessionKey) {
+      ipcRenderer.send(replyChannel, { locked: true });
+      return;
+    }
+    const allDocs = await thoughts.find({}).sort({ createdAt: -1 });
+    if (sessionKey) {
+      allDocs.forEach(doc => {
+        if (doc.iv) {
+          doc.content = decryptText(doc.content, doc.iv, doc.tag, sessionKey);
+        }
+      });
+    }
+    const regex = new RegExp(query, 'i');
+    const filtered = allDocs.filter(doc => regex.test(doc.content)).slice(0, 20);
+    ipcRenderer.send(replyChannel, filtered);
+  } catch (err) {
+    console.error('AI Search Thoughts Error:', err);
+    ipcRenderer.send(replyChannel, []);
+  }
+});
+
+ipcRenderer.on('spotlight-ai-update-thought', async (e, { id, updates, replyChannel }) => {
+  if (!dbReady || !thoughts) {
+    ipcRenderer.send(replyChannel, { success: false, error: 'DB not ready' });
+    return;
+  }
+  try {
+    const updatesToApply = { ...updates };
+    if (sessionKey && updatesToApply.content !== undefined) {
+      const encrypted = encryptText(updatesToApply.content, sessionKey);
+      updatesToApply.content = encrypted.ciphertext;
+      updatesToApply.iv = encrypted.iv;
+      updatesToApply.tag = encrypted.tag;
+    }
+    const res = await thoughts.update({ _id: id }, { $set: updatesToApply });
+    ipcRenderer.send('trigger-spotlight-refresh');
+    ipcRenderer.send(replyChannel, { success: true, count: res });
+  } catch (err) {
+    console.error('AI Update Thought Error:', err);
+    ipcRenderer.send(replyChannel, { success: false, error: err.message });
+  }
+});
+
+ipcRenderer.on('spotlight-ai-delete-thought', async (e, { id, replyChannel }) => {
+  if (!dbReady || !thoughts) {
+    ipcRenderer.send(replyChannel, { success: false, error: 'DB not ready' });
+    return;
+  }
+  try {
+    const res = await thoughts.remove({ _id: id });
+    ipcRenderer.send('trigger-spotlight-refresh');
+    ipcRenderer.send(replyChannel, { success: true, count: res });
+  } catch (err) {
+    console.error('AI Delete Thought Error:', err);
+    ipcRenderer.send(replyChannel, { success: false, error: err.message });
+  }
+});
+
+ipcRenderer.on('spotlight-ai-update-memory', async (e, { content, replyChannel }) => {
+  if (!dbReady || !memories) {
+    ipcRenderer.send(replyChannel, { success: false, error: 'DB not ready' });
+    return;
+  }
+  try {
+    let doc = { content, updatedAt: new Date().toISOString() };
+    if (sessionKey) {
+      const encrypted = encryptText(content, sessionKey);
+      doc.content = encrypted.ciphertext;
+      doc.iv = encrypted.iv;
+      doc.tag = encrypted.tag;
+    }
+    await memories.update({ _id: 'core_memory' }, { $set: doc }, { upsert: true });
+    ipcRenderer.send(replyChannel, { success: true });
+  } catch (err) {
+    console.error('AI Update Memory Error:', err);
+    ipcRenderer.send(replyChannel, { success: false, error: err.message });
   }
 });

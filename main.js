@@ -71,16 +71,31 @@ ipcMain.handle('notes-search', async (event, query) => notesStore.search(query))
 ipcMain.handle('calendar-create', async (event, data) => {
   const created = await calendarStore.create(data);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
   return created;
 });
 ipcMain.handle('calendar-update', async (event, id, updates) => {
   const updated = await calendarStore.update(id, updates);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
+
+  // 2-Way Sync: If calendar event is completed, mark associated thought as finished
+  if (updates.status === 'completed' && updated.thought_id) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spotlight-ai-update-thought', { 
+        id: updated.thought_id, 
+        updates: { status: 'finished' },
+        replyChannel: 'ignore-sync' 
+      });
+    }
+  }
+
   return updated;
 });
 ipcMain.handle('calendar-delete', async (event, id) => {
   const result = await calendarStore.remove(id);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
   return result;
 });
 ipcMain.handle('calendar-get', async (event, id) => calendarStore.getById(id));
@@ -246,6 +261,9 @@ if (!gotTheLock) {
     showOrCreateMainWindow();
   });
 }
+
+// Set AppUserModelId for Windows notifications to work correctly
+app.setAppUserModelId('com.abeezzz.mindspace');
 
 app.whenReady().then(async () => {
   await notesStore.init(app.getPath('userData'));
@@ -628,6 +646,19 @@ ipcMain.handle('spotlight-get-recent-thoughts', async () => {
   });
 });
 
+ipcMain.handle('spotlight-get-memory', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return '';
+  return new Promise((resolve) => {
+    const replyChannel = 'spotlight-get-memory-reply-' + Date.now() + Math.random().toString(36).substr(2, 9);
+    ipcMain.once(replyChannel, (event, memory) => resolve(memory));
+    mainWindow.webContents.send('spotlight-request-memory', replyChannel);
+    setTimeout(() => {
+      ipcMain.removeAllListeners(replyChannel);
+      resolve('');
+    }, 2000);
+  });
+});
+
 // Spotlight: open a thought in the main app
 ipcMain.on('spotlight-open-thought', (event, id) => {
   hideSpotlight();
@@ -644,10 +675,13 @@ ipcMain.on('spotlight-open-thought', (event, id) => {
   }
 });
 
-// Broadcast refresh signal to Spotlight
+// Broadcast refresh signal to Spotlight and Main Window
 ipcMain.on('trigger-spotlight-refresh', () => {
   if (spotlightWindow && !spotlightWindow.isDestroyed()) {
     spotlightWindow.webContents.send('spotlight-refresh-thoughts');
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('thought-refresh');
   }
 });
 
@@ -686,6 +720,7 @@ ipcMain.handle('spotlight-calendar-from-thought', async (event, data) => {
       reminder_minutes: reminderMinutes,
       status: 'upcoming',
       source_type: 'thought',
+      thought_id: data.id,
     });
 
     if (calendarScheduler) await calendarScheduler.rescheduleAll();
@@ -837,13 +872,279 @@ ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
   if (!config.hasKey) {
     throw new Error('No API key configured. Add your API key in Settings → AI Chat Assistant.');
   }
+  const mindspaceTools = [
+    {
+      type: 'function',
+      function: {
+        name: 'schedule_meeting',
+        description: 'Schedules a calendar event/meeting in MindSpace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool and what it will achieve.' },
+            title: { type: 'string', description: 'Title of the event or meeting.' },
+            description: { type: 'string', description: 'Details or context about the event.' },
+            event_date: { type: 'string', description: 'Date in YYYY-MM-DD format.' },
+            event_time: { type: 'string', description: 'Time in HH:MM format (24-hour).' },
+            priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Importance level of the event.' },
+          },
+          required: ['reasoning', 'title', 'event_date', 'event_time'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'create_thought',
+        description: 'Creates a thought/reminder on the MindSpace canvas.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool and what it will achieve.' },
+            content: { type: 'string', description: 'The text content of the thought.' },
+            priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Urgency of the thought.' },
+            persistence: { type: 'string', enum: ['persistent', 'today', 'until_date'], description: 'How long the thought should persist.' },
+            expiresAt: { type: 'string', description: 'Expiration ISO string, required if persistence is until_date.' },
+          },
+          required: ['reasoning', 'content', 'priority'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_thoughts',
+        description: 'Searches the user\'s thoughts for a given keyword.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            query: { type: 'string', description: 'Keyword or phrase to search for.' }
+          },
+          required: ['reasoning', 'query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_thought',
+        description: 'Updates an existing thought (e.g., mark finished, change content).',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            id: { type: 'string', description: 'The unique ID of the thought.' },
+            content: { type: 'string' },
+            priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+            status: { type: 'string', enum: ['active', 'finished', 'dismissed'], description: 'Set to finished to mark complete.' }
+          },
+          required: ['reasoning', 'id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'delete_thought',
+        description: 'Permanently deletes a thought.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            id: { type: 'string', description: 'The unique ID of the thought.' }
+          },
+          required: ['reasoning', 'id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_calendar_events',
+        description: 'Gets upcoming calendar events and meetings.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' }
+          },
+          required: ['reasoning'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_meeting',
+        description: 'Updates an existing meeting/calendar event (reschedule, mark complete).',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            id: { type: 'string', description: 'The event ID.' },
+            title: { type: 'string' },
+            event_date: { type: 'string', description: 'YYYY-MM-DD' },
+            event_time: { type: 'string', description: 'HH:MM' },
+            status: { type: 'string', enum: ['upcoming', 'completed', 'cancelled'] }
+          },
+          required: ['reasoning', 'id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'cancel_meeting',
+        description: 'Cancels/deletes a calendar event.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            id: { type: 'string', description: 'The event ID.' }
+          },
+          required: ['reasoning', 'id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_clipboard',
+        description: 'Reads the user\'s current clipboard text.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' }
+          },
+          required: ['reasoning'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'trigger_workflow',
+        description: 'Executes a MindSpace workflow by name.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            name: { type: 'string', description: 'The exact name of the workflow.' }
+          },
+          required: ['reasoning', 'name'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_notes',
+        description: 'Searches the user\'s long-form notes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            query: { type: 'string', description: 'Keyword to search for in notes. Leave empty to get all recent notes.' }
+          },
+          required: ['reasoning'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_core_memory',
+        description: 'Updates the active core memory with new condensed facts, preferences, or context about the user.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reasoning: { type: 'string', description: 'Explain why you are calling this tool.' },
+            content: { type: 'string', description: 'The complete condensed memory string, combining previous memory with new facts.' }
+          },
+          required: ['reasoning', 'content'],
+        },
+      },
+    }
+  ];
 
-  const opts = {
-    provider: config.provider,
-    apiKey: config.apiKey,
-    model: config.model,
-    messages,
+  // Helper IPC Functions for Thoughts (Decryption in Renderer)
+  const aiSearchThoughts = async (query) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return [];
+    return new Promise((resolve) => {
+      const replyChannel = 'ai-search-reply-' + Date.now() + Math.random();
+      ipcMain.once(replyChannel, (e, res) => resolve(res));
+      mainWindow.webContents.send('spotlight-ai-search-thoughts', { query, replyChannel });
+      setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve([]); }, 2000);
+    });
   };
+
+  const aiUpdateThought = async (id, updates) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
+    return new Promise((resolve) => {
+      const replyChannel = 'ai-update-reply-' + Date.now() + Math.random();
+      ipcMain.once(replyChannel, (e, res) => resolve(res));
+      mainWindow.webContents.send('spotlight-ai-update-thought', { id, updates, replyChannel });
+      setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve({ success: false }); }, 2000);
+    });
+  };
+
+  const aiDeleteThought = async (id) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
+    return new Promise((resolve) => {
+      const replyChannel = 'ai-delete-reply-' + Date.now() + Math.random();
+      ipcMain.once(replyChannel, (e, res) => resolve(res));
+      mainWindow.webContents.send('spotlight-ai-delete-thought', { id, replyChannel });
+      setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve({ success: false }); }, 2000);
+    });
+  };
+
+  const aiUpdateMemory = async (content) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
+    return new Promise((resolve) => {
+      const replyChannel = 'ai-memory-reply-' + Date.now() + Math.random();
+      ipcMain.once(replyChannel, (e, res) => resolve(res));
+      mainWindow.webContents.send('spotlight-ai-update-memory', { content, replyChannel });
+      setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve({ success: false }); }, 2000);
+    });
+  };
+
+  const toolsEnabled = true;
+
+  let currentMessages = [...messages];
+  // Inject system prompt with date/time rules
+  const systemMsg = {
+    role: 'system',
+    content: `You are the MindSpace Peak Intelligence AI Assistant. You have a "broski" attitude—a homie who is extremely helpful, conversational, sharp, and uses a bit of casual slang, but still gets things done professionally.
+Current Local Date and Time: ${new Date().toString()}
+Current ISO Date: ${new Date().toISOString()}
+
+Rules & Capabilities:
+1. EYES & MEMORY: Use 'search_thoughts', 'get_calendar_events', and 'read_notes' when asked about the user's data. You have FULL ACCESS to Notes, Thoughts, and Calendar.
+2. STRICT BANS: You DO NOT have access to Archives and you CANNOT change Settings. If asked, politely refuse, homie.
+3. CONTEXT AWARENESS: Use 'read_clipboard' if the user asks you to "summarize this" or if they paste something without context.
+4. CRUD CONTROL: Use 'update_thought', 'delete_thought', 'update_meeting', and 'cancel_meeting' to modify existing data in real time.
+5. ACTIVE MEMORY: Use 'update_core_memory' to constantly track and condense new facts, preferences, and essential context about the user from your chats. Keep the memory robust and actively updated.
+6. WORKFLOWS: Use 'trigger_workflow' if the user wants to execute an automation.
+7. CALENDAR SCHEDULING: Always use tools to schedule events. Automatically infer priority. Use YYYY-MM-DD for dates.
+8. RELATIVE TIME: If a user says "in 1 min", you must internally calculate the exact time (HH:MM) by adding it to Current Time. Do NOT show your math in text. Only pass the final HH:MM to the tool call.
+9. COMMUNICATION: If the user is just chatting, greeting you, or asking a question that doesn't require tools, DO NOT call any tools. Just chat back using your broski persona. DO NOT loop on tools. Always output a final conversational message to the user summarizing what you did.
+10. AVOID LOOPING: Never call the exact same tool repeatedly if the previous call gave you the answer or failed. If you have the answer, reply to the user.
+11. REAL TOOL CALLS ONLY: You MUST invoke tools using the native JSON function calling format. NEVER write out markdown like "> Action: Using tool" in your text response.
+12. TOOL CALLING REQUIRED PARAMETERS: When calling ANY tool, you MUST include the 'reasoning' parameter explaining your thought process. Do NOT omit it.`
+  };
+  
+  // Combine any existing system messages (like injected memory from frontend) with the main systemMsg
+  const systemContents = [systemMsg.content];
+  const nonSystemMessages = [];
+  for (const m of currentMessages) {
+    if (m.role === 'system') systemContents.push(m.content);
+    else nonSystemMessages.push(m);
+  }
+  
+  currentMessages = [
+    { role: 'system', content: systemContents.join('\n\n---\n\n') },
+    ...nonSystemMessages
+  ];
 
   const tryWithFallback = async (attemptOpts) => {
     try {
@@ -862,40 +1163,234 @@ ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
     }
   };
 
-  if (stream && config.supportsStream) {
-    return new Promise((resolve, reject) => {
-      streamChatCompletion({
-        ...opts,
-        onChunk: (chunk) => {
+  const getOpts = () => ({
+    provider: config.provider,
+    apiKey: config.apiKey,
+    model: config.model,
+    messages: currentMessages,
+    tools: toolsEnabled ? mindspaceTools : undefined,
+  });
+
+  // We always execute non-streaming to easily handle tool calls, 
+  // then simulate the streaming back to the frontend at the end.
+
+  // Non-streaming execution loop for tool calling
+  let maxLoops = 5;
+  while (maxLoops > 0) {
+    maxLoops--;
+    const result = await tryWithFallback(getOpts());
+
+    // Fallback parser for Llama-3 leaking function calls as raw XML in content
+    if (result.content && result.content.includes('<function=')) {
+      result.tool_calls = result.tool_calls || [];
+      const robustRegex = /<function=([^>]+)>([\s\S]*?)<\/?function>/g;
+      let match;
+      let newContent = result.content;
+      
+      while ((match = robustRegex.exec(result.content)) !== null) {
+         const name = match[1];
+         let argsStr = match[2];
+         // Sometimes the model adds a trailing '>' at the end of the JSON just before </function>
+         if (argsStr.trim().endsWith('>') && argsStr.trim().length > 1) {
+            argsStr = argsStr.trim().slice(0, -1);
+         }
+         
+         try {
+            JSON.parse(argsStr); // validate
+            result.tool_calls.push({
+               id: 'call_' + Date.now() + Math.random().toString(36).substr(2, 9),
+               type: 'function',
+               function: { name: name, arguments: argsStr }
+            });
+            // remove it from the raw content so it doesn't get shown to user
+            newContent = newContent.replace(match[0], '');
+         } catch(e) {
+            console.error('Failed to parse hallucinated tool call:', argsStr);
+         }
+      }
+      result.content = newContent;
+      if (result.raw && result.raw.choices && result.raw.choices[0] && result.raw.choices[0].message) {
+         result.raw.choices[0].message.tool_calls = result.tool_calls;
+         result.raw.choices[0].message.content = newContent;
+      }
+    }
+
+    if (result.tool_calls && result.tool_calls.length > 0) {
+      // Add the assistant's tool_call message to the history
+      currentMessages.push(result.raw.choices[0].message);
+
+      let lastCreatedThoughtId = null;
+      let lastCreatedCalendarId = null;
+      let hasThinkingStr = false;
+      let thinkingStrTotal = '';
+
+      for (const call of result.tool_calls) {
+        let funcResult = '';
+        try {
+          const args = JSON.parse(call.function.arguments);
+          
+          // Stream AI's chain-of-thought to the UI immediately
+          if (!event.sender.isDestroyed()) {
+             let thinkingStr = `\n\n> 🧠 **Thinking**: *${args.reasoning || 'Deciding on action...'}*\n> 🛠️ **Action**: *Using tool \`${call.function.name}\`*\n\n`;
+             thinkingStrTotal += thinkingStr;
+             hasThinkingStr = true;
+             event.sender.send('spotlight-ai-chunk', { chunk: thinkingStr });
+          }
+
+          if (call.function.name === 'schedule_meeting') {
+            const calEvent = await calendarStore.create({
+              event_title: args.title,
+              event_description: args.description || '',
+              event_date: args.event_date,
+              event_time: args.event_time,
+              category: 'meeting',
+              priority: args.priority || 'medium',
+              repeat_type: 'none',
+              reminder_minutes: 15,
+              status: 'upcoming',
+              source_type: 'thought'
+            });
+            if (calendarScheduler) await calendarScheduler.rescheduleAll();
+            lastCreatedCalendarId = calEvent._id;
+            funcResult = `Successfully scheduled meeting ID: ${calEvent._id}`;
+          } else if (call.function.name === 'create_thought') {
+            const thoughtData = {
+              _id: require('crypto').randomBytes(16).toString('hex'),
+              content: args.content,
+              priority: args.priority || 'medium',
+              persistence: args.persistence || 'persistent',
+              expiresAt: args.expiresAt || null,
+              tags: ['ai-generated']
+            };
+            if (mainWindow && !mainWindow.isDestroyed()) {
+               mainWindow.webContents.send('spotlight-create-thought', thoughtData);
+               lastCreatedThoughtId = thoughtData._id;
+               funcResult = `Successfully created thought ID: ${thoughtData._id} with content: "${args.content}"`;
+            } else {
+               createWindow();
+               mainWindow.hide();
+               mainWindow.webContents.once('did-finish-load', () => {
+                 mainWindow.webContents.send('spotlight-create-thought', thoughtData);
+               });
+               lastCreatedThoughtId = thoughtData._id;
+               funcResult = `Successfully created thought ID: ${thoughtData._id} (in background)`;
+            }
+          } else if (call.function.name === 'search_thoughts') {
+            const results = await aiSearchThoughts(args.query);
+            if (results && results.locked) {
+              funcResult = `Cannot search: MindSpace is currently locked. The user must unlock it first.`;
+            } else {
+              funcResult = `Found ${results.length} thoughts. Context: \n` + results.map(t => `ID: ${t._id} | Date: ${t.createdAt} | Content: ${t.content}`).join('\n');
+            }
+          } else if (call.function.name === 'update_thought') {
+            const updates = {};
+            if (args.content) updates.content = args.content;
+            if (args.priority) updates.priority = args.priority;
+            if (args.status) updates.status = args.status;
+            const res = await aiUpdateThought(args.id, updates);
+            funcResult = res.success ? `Successfully updated thought ${args.id}` : `Failed to update thought ${args.id}: ${res.error}`;
+          } else if (call.function.name === 'delete_thought') {
+            const res = await aiDeleteThought(args.id);
+            funcResult = res.success ? `Successfully deleted thought ${args.id}` : `Failed to delete thought ${args.id}: ${res.error}`;
+          } else if (call.function.name === 'get_calendar_events') {
+            const events = await calendarStore.getAll();
+            const upcoming = events.filter(e => e.status !== 'completed' && e.status !== 'cancelled').slice(0, 15);
+            funcResult = `Upcoming ${upcoming.length} events:\n` + upcoming.map(e => `ID: ${e._id} | ${e.event_date} ${e.event_time} | ${e.event_title} (${e.status})`).join('\n');
+          } else if (call.function.name === 'update_meeting') {
+            const updates = {};
+            if (args.title) updates.event_title = args.title;
+            if (args.event_date) updates.event_date = args.event_date;
+            if (args.event_time) updates.event_time = args.event_time;
+            if (args.status) updates.status = args.status;
+            const updated = await calendarStore.update(args.id, updates);
+            if (calendarScheduler) await calendarScheduler.rescheduleAll();
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
+            
+            // 2-Way Sync: If marked completed, mark associated thought as finished
+            if (updates.status === 'completed' && updated && updated.thought_id) {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('spotlight-ai-update-thought', { 
+                  id: updated.thought_id, 
+                  updates: { status: 'finished' },
+                  replyChannel: 'ignore-sync' 
+                });
+              }
+            }
+            funcResult = `Successfully updated meeting ${args.id}`;
+          } else if (call.function.name === 'cancel_meeting') {
+            await calendarStore.remove(args.id);
+            if (calendarScheduler) await calendarScheduler.rescheduleAll();
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
+            funcResult = `Successfully cancelled meeting ${args.id}`;
+          } else if (call.function.name === 'read_clipboard') {
+            const text = clipboard.readText();
+            funcResult = text ? `Clipboard Content:\n${text.substring(0, 5000)}` : `Clipboard is empty.`;
+          } else if (call.function.name === 'trigger_workflow') {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('spotlight-execute-workflow', args.name);
+            }
+            funcResult = `Triggered workflow: ${args.name}`;
+          } else if (call.function.name === 'read_notes') {
+            const results = await notesStore.search(args.query || '');
+            const recent = results.slice(0, 10);
+            funcResult = `Found ${recent.length} notes:\n` + recent.map(n => `ID: ${n._id} | Title: ${n.title}\nContent: ${n.content.substring(0, 500)}...`).join('\n\n');
+          } else if (call.function.name === 'update_core_memory') {
+            const res = await aiUpdateMemory(args.content);
+            funcResult = res.success ? `Successfully updated core memory.` : `Failed to update core memory: ${res.error}`;
+          } else {
+            funcResult = `Unknown tool: ${call.function.name}`;
+          }
+        } catch (e) {
+          funcResult = `Error executing tool: ${e.message}`;
+        }
+        
+        // Add the tool result back to the messages
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: funcResult,
+        });
+      }
+
+      // Auto-link AI generated Thoughts and Calendar events created in the same turn
+      if (lastCreatedThoughtId && lastCreatedCalendarId) {
+        try {
+          await calendarStore.update(lastCreatedCalendarId, { thought_id: lastCreatedThoughtId });
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('spotlight-ai-update-thought', {
+              id: lastCreatedThoughtId,
+              updates: { calendarEventId: lastCreatedCalendarId },
+              replyChannel: 'ignore-link'
+            });
+          }
+        } catch (e) { console.error('Failed to auto-link AI thought and calendar', e); }
+      }
+
+      // Loop again to let AI generate a final response
+      continue;
+    }
+    
+    // If no tool calls, it's a final response. Let's stream it back.
+    if (stream) {
+      return new Promise(async (resolve) => {
+        // Simple chunking simulation for final text
+        const text = result.content || '';
+        const chunkSize = 4;
+        for (let i = 0; i < text.length; i += chunkSize) {
+          const chunk = text.slice(i, i + chunkSize);
           if (!event.sender.isDestroyed()) {
             event.sender.send('spotlight-ai-chunk', { chunk });
           }
-        },
-        onDone: () => resolve({ streamed: true }),
-        onError: async (err) => {
-          // For streaming 429 errors, retry non-streaming with alternate key
-          if (err.message && err.message.includes('429')) {
-            const altKey = getAlternateApiKey(config);
-            if (altKey && altKey !== opts.apiKey) {
-              console.log('AI Chat stream: 429 detected, retrying non-streaming with alternate key');
-              persistKeySwitch(config);
-              try {
-                const result = await chatCompletion({ ...opts, apiKey: altKey });
-                resolve({ content: result.content, streamed: false });
-              } catch (retryErr) {
-                reject(retryErr);
-              }
-              return;
-            }
-          }
-          reject(err);
-        },
+          await new Promise(r => setTimeout(r, 10)); // ~400 chars per sec
+        }
+        resolve({ content: result.content, streamed: true });
       });
-    });
+    }
+    
+    return { content: result.content, streamed: false };
   }
-
-  const result = await tryWithFallback(opts);
-  return { content: result.content, streamed: false };
+  
+  return { content: "I had to stop thinking because the operation was too complex.", streamed: false };
 });
 
 ipcMain.on('spotlight-open-result-url', (event, url) => {
