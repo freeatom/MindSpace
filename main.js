@@ -1,3 +1,4 @@
+// Main 
 const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen, Tray, Menu, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
