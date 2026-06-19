@@ -1,204 +1,285 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
       width: 100%;
       height: 100%;
       background: transparent;
       overflow: hidden;
-      -webkit-app-region: drag;
       user-select: none;
     }
+
     .pill {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 18px 8px 14px;
-      border-radius: 40px;
-      /* Professional Dark Glassmorphism */
-      background: rgba(17, 24, 39, 0.85);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 
-        0 0 0 1px rgba(16, 185, 129, 0.15) inset;
+      padding: 8px 16px 8px 12px;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
       font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
       opacity: 0;
-      transform: translateY(6px) scale(0.95);
-      transition: opacity 0.22s ease-out, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateY(8px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
     }
+
     .pill.visible {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: translateY(0);
+    }
+
+    /* No animations unless actively showing a live state */
+    .pill[data-state="idle"] .mic-ring::before,
+    .pill[data-state="idle"] .wave-bars span,
+    .pill[data-state="idle"] .pill-dots span,
+    .pill[data-state="transcribing"] .mic-ring::before,
+    .pill[data-state="transcribing"] .wave-bars span,
+    .pill[data-state="error"] .mic-ring::before,
+    .pill[data-state="error"] .wave-bars span,
+    .pill[data-state="error"] .pill-dots span {
+      animation: none !important;
     }
 
     .mic-ring {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
+      flex-shrink: 0;
     }
+
     .mic-ring::before {
       content: '';
       position: absolute;
-      inset: -3px;
+      inset: -2px;
       border-radius: 50%;
-      border: 2px solid rgba(16, 185, 129, 0.5);
-      animation: micPulse 1.4s ease-in-out infinite;
+      border: 2px solid rgba(16, 185, 129, 0.45);
+      opacity: 0;
     }
+
+    .pill[data-state="listening"] .mic-ring::before {
+      opacity: 1;
+      animation: micPulse 1.6s ease-out infinite;
+    }
+
     @keyframes micPulse {
-      0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.3); opacity: 0; }
+      0% {
+        transform: scale(1);
+        opacity: 0.55;
+      }
+
+      100% {
+        transform: scale(1.35);
+        opacity: 0;
+      }
     }
+
     .mic-ring svg {
-      width: 13px;
-      height: 13px;
+      width: 12px;
+      height: 12px;
       color: #10b981;
-      filter: drop-shadow(0 0 4px rgba(16,185,129,0.4));
+    }
+
+    .pill[data-state="error"] .mic-ring svg {
+      color: #f87171;
     }
 
     .pill-text {
       font-size: 12px;
       font-weight: 600;
       color: rgba(255, 255, 255, 0.92);
-      letter-spacing: 0.02em;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.15);
       white-space: nowrap;
     }
 
-    .pill-dots {
-      display: inline-flex;
-      gap: 2px;
-      margin-left: -2px;
+    .pill[data-state="error"] .pill-text {
+      color: #fca5a5;
     }
+
+    .wave-bars,
+    .pill-dots,
+    .pill-timer {
+      display: none;
+    }
+
+    .pill[data-state="listening"] .wave-bars,
+    .pill[data-state="listening"] .pill-timer {
+      display: flex;
+    }
+
+    .pill[data-state="transcribing"] .pill-dots {
+      display: inline-flex;
+    }
+
+    .wave-bars {
+      align-items: center;
+      gap: 2px;
+      height: 12px;
+    }
+
+    .wave-bars span {
+      width: 2px;
+      border-radius: 1px;
+      background: rgba(16, 185, 129, 0.75);
+      height: 6px;
+    }
+
+    .pill[data-state="listening"] .wave-bars span {
+      animation: waveBar 0.9s ease-in-out infinite;
+    }
+
+    .wave-bars span:nth-child(1) { animation-delay: 0s; }
+    .wave-bars span:nth-child(2) { animation-delay: 0.12s; height: 9px; }
+    .wave-bars span:nth-child(3) { animation-delay: 0.24s; height: 12px; }
+    .wave-bars span:nth-child(4) { animation-delay: 0.08s; height: 8px; }
+    .wave-bars span:nth-child(5) { animation-delay: 0.18s; height: 10px; }
+
+    @keyframes waveBar {
+      0%, 100% { transform: scaleY(0.45); }
+      50% { transform: scaleY(1); }
+    }
+
+    .pill-dots {
+      gap: 3px;
+      align-items: center;
+    }
+
     .pill-dots span {
       width: 3px;
       height: 3px;
       border-radius: 50%;
-      background: rgba(255,255,255,0.7);
-      animation: dotBounce 1.2s ease-in-out infinite;
+      background: rgba(255, 255, 255, 0.65);
     }
+
+    .pill[data-state="transcribing"] .pill-dots span {
+      animation: dotBounce 1.1s ease-in-out infinite;
+    }
+
     .pill-dots span:nth-child(2) { animation-delay: 0.15s; }
     .pill-dots span:nth-child(3) { animation-delay: 0.3s; }
+
     @keyframes dotBounce {
-      0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+      0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
       40% { opacity: 1; transform: translateY(-2px); }
     }
 
-    /* Waveform bars for listening state */
-    .wave-bars {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      height: 14px;
-    }
-    .wave-bars span {
-      width: 2.5px;
-      border-radius: 2px;
-      background: rgba(16, 185, 129, 0.7);
-      animation: waveBar 0.8s ease-in-out infinite;
-    }
-    .wave-bars span:nth-child(1) { height: 6px; animation-delay: 0s; }
-    .wave-bars span:nth-child(2) { height: 10px; animation-delay: 0.1s; }
-    .wave-bars span:nth-child(3) { height: 14px; animation-delay: 0.2s; }
-    .wave-bars span:nth-child(4) { height: 8px; animation-delay: 0.3s; }
-    .wave-bars span:nth-child(5) { height: 12px; animation-delay: 0.15s; }
-    @keyframes waveBar {
-      0%, 100% { transform: scaleY(0.4); }
-      50% { transform: scaleY(1); }
-    }
-
-    /* Timer */
     .pill-timer {
       font-size: 10px;
       font-weight: 500;
-      color: rgba(255,255,255,0.55);
+      color: rgba(255, 255, 255, 0.5);
       font-variant-numeric: tabular-nums;
-      margin-left: 2px;
     }
   </style>
 </head>
+
 <body>
-  <div class="pill" id="pill">
+  <div class="pill" id="pill" data-state="idle">
     <div class="mic-ring">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+      </svg>
     </div>
-    <div class="wave-bars" id="wave-bars">
+    <div class="wave-bars" aria-hidden="true">
       <span></span><span></span><span></span><span></span><span></span>
     </div>
     <span class="pill-text" id="pill-text">Listening</span>
-    <span class="pill-dots" id="pill-dots"><span></span><span></span><span></span></span>
+    <span class="pill-dots" aria-hidden="true"><span></span><span></span><span></span></span>
     <span class="pill-timer" id="pill-timer">0:00</span>
   </div>
 
   <script>
     const { ipcRenderer } = require('electron');
+
     const pill = document.getElementById('pill');
     const pillText = document.getElementById('pill-text');
-    const pillDots = document.getElementById('pill-dots');
     const pillTimer = document.getElementById('pill-timer');
-    const waveBars = document.getElementById('wave-bars');
 
+    const LABELS = {
+      listening: 'Listening',
+      transcribing: 'Transcribing',
+      error: 'Error',
+    };
+
+    let currentState = 'idle';
     let timerInterval = null;
-    let startTime = null;
+    let listenStart = null;
+
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      listenStart = null;
+    }
 
     function updateTimer() {
-      if (!startTime) return;
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      if (!listenStart) return;
+      const elapsed = Math.floor((Date.now() - listenStart) / 1000);
       const m = Math.floor(elapsed / 60);
       const s = elapsed % 60;
       pillTimer.textContent = `${m}:${s.toString().padStart(2, '0')}`;
     }
 
-    ipcRenderer.on('whispr-pill-state', (e, state) => {
+    function setIdle() {
+      currentState = 'idle';
+      stopTimer();
+      pill.dataset.state = 'idle';
+      pill.classList.remove('visible');
+    }
+
+    function applyState(state) {
+      // Normalize legacy 'done' → idle
+      if (state === 'done') state = 'idle';
+      if (state === currentState && state !== 'listening') return;
+
+      if (state === 'idle') {
+        setIdle();
+        return;
+      }
+
+      currentState = state;
+      pill.dataset.state = state;
+      pillText.textContent = LABELS[state] || state;
+
       if (state === 'listening') {
-        pillText.textContent = 'Listening';
-        waveBars.style.display = 'flex';
-        pillDots.style.display = 'none';
-        pillTimer.style.display = '';
-        startTime = Date.now();
-        if (timerInterval) clearInterval(timerInterval);
+        listenStart = Date.now();
+        pillTimer.textContent = '0:00';
+        stopTimer();
         timerInterval = setInterval(updateTimer, 1000);
-        // Animate in
-        pill.classList.remove('visible');
-        void pill.offsetWidth;
-        pill.classList.add('visible');
-      } else if (state === 'transcribing') {
-        pillText.textContent = 'Transcribing';
-        waveBars.style.display = 'none';
-        pillDots.style.display = 'inline-flex';
-        pillTimer.style.display = 'none';
-        if (timerInterval) clearInterval(timerInterval);
-        // Ensure pill is visible for transcribing state too
         if (!pill.classList.contains('visible')) {
           pill.classList.add('visible');
         }
-      } else if (state === 'done') {
-        pill.classList.remove('visible');
-        if (timerInterval) clearInterval(timerInterval);
-        timerInterval = null;
-        startTime = null;
-      } else if (state === 'error') {
-        pillText.textContent = 'Error';
-        waveBars.style.display = 'none';
-        pillDots.style.display = 'none';
-        pillTimer.style.display = 'none';
-        if (timerInterval) clearInterval(timerInterval);
-        timerInterval = null;
-        setTimeout(() => {
-          pill.classList.remove('visible');
-        }, 2000);
+        return;
       }
+
+      stopTimer();
+
+      if (state === 'transcribing' || state === 'error') {
+        pill.classList.add('visible');
+      }
+    }
+
+    ipcRenderer.on('whispr-pill-state', (_e, state) => {
+      applyState(state);
     });
 
-    // Signal to main process that the pill is ready to receive state messages
     ipcRenderer.send('whispr-pill-ready');
   </script>
 </body>
+
 </html>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, nativeImage, globalShortcut, screen, Tray, Menu, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, exec } = require('child_process');
@@ -12,6 +12,9 @@ const calendarStore = require('./services/calendar-store');
 const CalendarScheduler = require('./services/calendar-scheduler');
 const calendarParser = require('./services/calendar-parser');
 const whispr = require('./services/whispr');
+const agent = require('./services/agent');
+const agentMemory = require('./services/agent-memory');
+const notifications = require('./services/notifications');
 
 let mainWindow;
 let calendarScheduler = null;
@@ -25,6 +28,18 @@ let tray = null;
 // ─── Whispr (speech-to-text) state ───
 let whisprPillWindow = null;
 let whisprRecording = false;
+let whisprRecordingTimeout = null;
+const WHISPR_MAX_RECORDING_MS = 120000;
+let pttProcess = null;
+let pttActive = false;
+let pttPendingStart = null;
+let pttStartedRecording = false;
+const PTT_MIN_HOLD_MS = 120;
+let selfHealTimer = null;
+let whisprSanityTimer = null;
+let selfHealRunning = false;
+const SELF_HEAL_INTERVAL_MS = 60 * 60 * 1000;
+const WHISPR_SANITY_INTERVAL_MS = 5 * 60 * 1000;
 
 function getNotesPath() {
   return path.join(app.getPath('userData'), 'mindspace-data', 'spotlight-notes.txt');
@@ -71,16 +86,31 @@ ipcMain.handle('notes-search', async (event, query) => notesStore.search(query))
 ipcMain.handle('calendar-create', async (event, data) => {
   const created = await calendarStore.create(data);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
   return created;
 });
 ipcMain.handle('calendar-update', async (event, id, updates) => {
   const updated = await calendarStore.update(id, updates);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
+
+  // 2-Way Sync: If calendar event is completed, mark associated thought as finished
+  if (updates.status === 'completed' && updated.thought_id) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spotlight-ai-update-thought', {
+        id: updated.thought_id,
+        updates: { status: 'finished' },
+        replyChannel: 'ignore-sync'
+      });
+    }
+  }
+
   return updated;
 });
 ipcMain.handle('calendar-delete', async (event, id) => {
   const result = await calendarStore.remove(id);
   if (calendarScheduler) await calendarScheduler.rescheduleAll();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('calendar-refresh');
   return result;
 });
 ipcMain.handle('calendar-get', async (event, id) => calendarStore.getById(id));
@@ -247,10 +277,14 @@ if (!gotTheLock) {
   });
 }
 
+// Set AppUserModelId for Windows notifications to work correctly
+app.setAppUserModelId('com.abeezzz.mindspace');
+
 app.whenReady().then(async () => {
   await notesStore.init(app.getPath('userData'));
   await migrateLegacySpotlightNotes();
   await calendarStore.init(app.getPath('userData'));
+  await agentMemory.init(app.getPath('userData'));
 
   createWindow();
 
@@ -260,15 +294,8 @@ app.whenReady().then(async () => {
   calendarScheduler = new CalendarScheduler(() => mainWindow);
   await calendarScheduler.start();
 
-  // Register global spotlight shortcut
-  globalShortcut.register('Alt+Space', () => {
-    toggleSpotlight();
-  });
-
-  // Register Whispr shortcut (Alt+`)
-  globalShortcut.register('Alt+`', () => {
-    toggleWhispr();
-  });
+  // Register global shortcuts
+  registerGlobalShortcuts();
 
   // Pre-warm spotlight so Alt+Space opens instantly (hidden, already loaded)
   prewarmSpotlight();
@@ -281,13 +308,35 @@ app.whenReady().then(async () => {
 
   // Pre-warm whispr pill so it's instantly ready on first PTT press
   createWhisprPill();
+
+  // Release mic on sleep/lock; recover after resume
+  powerMonitor.on('suspend', () => forceStopWhispr());
+  powerMonitor.on('lock-screen', () => forceStopWhispr());
+  powerMonitor.on('resume', () => {
+    if (whisprRecording || pttActive) forceStopWhispr();
+  });
+
+  // Periodic self-heal + whispr sanity checks
+  startHourlySelfHeal();
+  startWhisprSanityCheck();
+
+  // Setup Daily Briefing and Canvas Cleanup Autopilot (runs 15 seconds after startup, then every 24 hours)
+  setTimeout(() => {
+    runDailyAutopilot();
+  }, 15000);
+  setInterval(() => {
+    runDailyAutopilot();
+  }, 24 * 60 * 60 * 1000);
 });
 
 app.on('will-quit', () => {
   app.isQuitting = true;
   globalShortcut.unregisterAll();
   stopClipboardPolling();
+  forceStopWhispr();
   stopPushToTalkMonitor();
+  stopHourlySelfHeal();
+  stopWhisprSanityCheck();
   if (calendarScheduler) calendarScheduler.stop();
   if (tray) {
     tray.destroy();
@@ -607,23 +656,36 @@ ipcMain.handle('spotlight-get-tags', async () => {
 // Spotlight: get recent thoughts for the thought stack display
 ipcMain.handle('spotlight-get-recent-thoughts', async () => {
   if (!mainWindow || mainWindow.isDestroyed()) return [];
-  
+
   return new Promise((resolve) => {
     // Generate a unique reply channel for this request
     const replyChannel = 'spotlight-recent-thoughts-reply-' + Date.now() + Math.random().toString(36).substr(2, 9);
-    
+
     // Listen for the reply once
     ipcMain.once(replyChannel, (event, thoughts) => {
       resolve(thoughts);
     });
-    
+
     // Send request to main window (which has the decryption key and preload logic)
     mainWindow.webContents.send('spotlight-request-recent-thoughts', replyChannel);
-    
+
     // Timeout fallback just in case main window doesn't reply
     setTimeout(() => {
       ipcMain.removeAllListeners(replyChannel);
       resolve([]);
+    }, 2000);
+  });
+});
+
+ipcMain.handle('spotlight-get-memory', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return '';
+  return new Promise((resolve) => {
+    const replyChannel = 'spotlight-get-memory-reply-' + Date.now() + Math.random().toString(36).substr(2, 9);
+    ipcMain.once(replyChannel, (event, memory) => resolve(memory));
+    mainWindow.webContents.send('spotlight-request-memory', replyChannel);
+    setTimeout(() => {
+      ipcMain.removeAllListeners(replyChannel);
+      resolve('');
     }, 2000);
   });
 });
@@ -644,10 +706,13 @@ ipcMain.on('spotlight-open-thought', (event, id) => {
   }
 });
 
-// Broadcast refresh signal to Spotlight
+// Broadcast refresh signal to Spotlight and Main Window
 ipcMain.on('trigger-spotlight-refresh', () => {
   if (spotlightWindow && !spotlightWindow.isDestroyed()) {
     spotlightWindow.webContents.send('spotlight-refresh-thoughts');
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('thought-refresh');
   }
 });
 
@@ -686,6 +751,7 @@ ipcMain.handle('spotlight-calendar-from-thought', async (event, data) => {
       reminder_minutes: reminderMinutes,
       status: 'upcoming',
       source_type: 'thought',
+      thought_id: data.id,
     });
 
     if (calendarScheduler) await calendarScheduler.rescheduleAll();
@@ -832,24 +898,64 @@ function persistKeySwitch(config) {
   }
 }
 
+// ─── PEAK INTELLIGENCE AGENT — Spotlight AI Chat ───
 ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
   const config = getAiConfigFromStore();
   if (!config.hasKey) {
     throw new Error('No API key configured. Add your API key in Settings → AI Chat Assistant.');
   }
 
-  const opts = {
-    provider: config.provider,
-    apiKey: config.apiKey,
-    model: config.model,
-    messages,
+  // Bridge: send thought-related ops to the renderer (which has the encryption key)
+  const thoughtBridge = (op) => (payload) => new Promise((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return resolve({ success: false, error: 'main window unavailable', _op: op });
+    const replyChannel = `agent-thought-reply-${op}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const t = setTimeout(() => {
+      ipcMain.removeAllListeners(replyChannel);
+      resolve({ success: false, error: 'timeout', _op: op });
+    }, 5000);
+    ipcMain.once(replyChannel, (_e, res) => {
+      clearTimeout(t);
+      resolve(res);
+    });
+    if (op === 'create') mainWindow.webContents.send('spotlight-create-thought', { ...payload, _replyChannel: replyChannel });
+    else if (op === 'get') mainWindow.webContents.send('spotlight-ai-get-thought', { id: payload.id, replyChannel });
+    else if (op === 'update') mainWindow.webContents.send('spotlight-ai-update-thought', { id: payload.id, updates: payload.updates, replyChannel });
+    else if (op === 'delete') mainWindow.webContents.send('spotlight-ai-delete-thought', { id: payload.id, replyChannel });
+    else if (op === 'search') mainWindow.webContents.send('spotlight-ai-search-thoughts', { query: payload.query, replyChannel });
+  });
+
+  // Bridge: trigger a workflow in the main window
+  const triggerWorkflow = (name) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spotlight-execute-workflow', name);
+    }
   };
 
+  // Bridge: broadcast a calendar refresh
+  const broadcastCalendarRefresh = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('calendar-refresh');
+    }
+  };
+
+  // Bridge: read clipboard (main process has direct access)
+  const readClipboard = async () => clipboard.readText();
+
+  // Bridge: web search
+  const webSearch = async (query) => {
+    try {
+      const data = await searchWeb(query);
+      return data;
+    } catch (e) {
+      return { results: [], aiAnswer: null, error: e.message };
+    }
+  };
+
+  // Helper: 429 key-fallback for chatCompletion
   const tryWithFallback = async (attemptOpts) => {
     try {
       return await chatCompletion(attemptOpts);
     } catch (err) {
-      // Auto-fallback on 429 rate-limit
       if (err.statusCode === 429) {
         const altKey = getAlternateApiKey(config);
         if (altKey && altKey !== attemptOpts.apiKey) {
@@ -862,40 +968,102 @@ ipcMain.handle('spotlight-ai-chat', async (event, { messages, stream }) => {
     }
   };
 
-  if (stream && config.supportsStream) {
-    return new Promise((resolve, reject) => {
-      streamChatCompletion({
-        ...opts,
-        onChunk: (chunk) => {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('spotlight-ai-chunk', { chunk });
-          }
-        },
-        onDone: () => resolve({ streamed: true }),
-        onError: async (err) => {
-          // For streaming 429 errors, retry non-streaming with alternate key
-          if (err.message && err.message.includes('429')) {
-            const altKey = getAlternateApiKey(config);
-            if (altKey && altKey !== opts.apiKey) {
-              console.log('AI Chat stream: 429 detected, retrying non-streaming with alternate key');
-              persistKeySwitch(config);
-              try {
-                const result = await chatCompletion({ ...opts, apiKey: altKey });
-                resolve({ content: result.content, streamed: false });
-              } catch (retryErr) {
-                reject(retryErr);
-              }
-              return;
-            }
-          }
-          reject(err);
-        },
-      });
-    });
-  }
+  // Build the agent context
+  const ctx = {
+    event,
+    emitChunk: (str) => {
+      if (event.sender && !event.sender.isDestroyed()) {
+        try { event.sender.send('spotlight-ai-chunk', { chunk: str }); } catch (e) { }
+      }
+    },
+    config,
+    memory: agentMemory,
+    calendarStore,
+    notesStore,
+    calendarScheduler,
+    llm: { chatCompletion, streamChatCompletion, PROVIDERS, getDefaultModel },
+    tryWithFallback,
+    getAlternateApiKey,
+    persistKeySwitch,
+    ipc: {
+      createThought: async (data) => {
+        const r = await thoughtBridge('create')(data);
+        // The createThought bridge needs to return the inserted doc. The preload's
+        // createThought handler is the canonical one. Let's just call it via spotlight-save-thought.
+        if (!mainWindow || mainWindow.isDestroyed()) return null;
+        return new Promise((resolve) => {
+          const replyChannel = `agent-thought-create-reply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const t = setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve(null); }, 5000);
+          ipcMain.once(replyChannel, (_e, res) => { clearTimeout(t); resolve(res); });
+          mainWindow.webContents.send('spotlight-save-thought', { ...data, _replyChannel: replyChannel });
+        });
+      },
+      getThought: async (id) => {
+        const r = await thoughtBridge('get')({ id });
+        return r && r._id ? r : null;
+      },
+      updateThought: async (id, updates) => {
+        return thoughtBridge('update')({ id, updates });
+      },
+      deleteThought: async (id) => {
+        return thoughtBridge('delete')({ id });
+      },
+      searchThoughts: async (query) => {
+        const r = await thoughtBridge('search')({ query });
+        if (r && r.locked) return [];
+        return Array.isArray(r) ? r : [];
+      },
+      getAllThoughts: async () => {
+        const r = await thoughtBridge('search')({ query: '' });
+        return Array.isArray(r) ? r : [];
+      },
+      updateCalendarEvent: async (id, updates) => {
+        return calendarStore.update(id, updates);
+      },
+      broadcastCalendarRefresh,
+      triggerWorkflow,
+      readClipboard,
+      webSearch,
+    },
+  };
 
-  const result = await tryWithFallback(opts);
-  return { content: result.content, streamed: false };
+  // Run the agent
+  try {
+    const result = await agent.handleTurn({ messages, config, ctx, stream });
+    return { content: result.content, streamed: !!stream, verifications: result.verifications, verified: result.verified };
+  } catch (err) {
+    console.error('Agent error:', err);
+    throw err;
+  }
+});
+
+// ─── AGENT MEMORY IPC BRIDGES (read/write knowledge graph + scratchpad) ───
+ipcMain.handle('agent-memory-snapshot', async () => {
+  return agentMemory.buildContextSnapshot();
+});
+ipcMain.handle('agent-scratchpad-read', async () => {
+  return agentMemory.readScratchpad();
+});
+ipcMain.handle('agent-scratchpad-update', async (event, patch) => {
+  return agentMemory.updateScratchpad(patch || {});
+});
+ipcMain.handle('agent-entity-upsert', async (event, payload) => {
+  return agentMemory.upsertEntity(payload || {});
+});
+ipcMain.handle('agent-entity-list', async (event, filters) => {
+  return agentMemory.findEntities(filters || {});
+});
+ipcMain.handle('agent-entity-delete', async (event, id) => {
+  return agentMemory.deleteEntity(id);
+});
+ipcMain.handle('agent-relation-upsert', async (event, payload) => {
+  return agentMemory.upsertRelation(payload || {});
+});
+ipcMain.handle('agent-history', async (event, limit) => {
+  return agentMemory.getHistory(limit || 50);
+});
+ipcMain.handle('agent-learn-facts', async (event, facts) => {
+  return agentMemory.applyExtractedFacts(facts || {});
 });
 
 ipcMain.on('spotlight-open-result-url', (event, url) => {
@@ -903,6 +1071,317 @@ ipcMain.on('spotlight-open-result-url', (event, url) => {
     shell.openExternal(url);
   }
 });
+
+// ─── Mindspace Autopilot (Less is More) Helpers ───
+const processedClips = new Set();
+
+function isVoiceCommand(text) {
+  if (!text) return false;
+  const clean = text.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "");
+  const triggers = [
+    'hey space',
+    'hey mindspace',
+    'hey mind space',
+    'schedule',
+    'remind me',
+    'create a note',
+    'create note',
+    'add note',
+    'create thought',
+    'create a thought',
+    'add a thought',
+    'add thought',
+    'run workflow',
+    'trigger workflow',
+    'search for'
+  ];
+  return triggers.some(trigger => clean.startsWith(trigger));
+}
+
+async function runAgentInBackground(userText) {
+  const config = getAiConfigFromStore();
+  if (!config.hasKey) {
+    throw new Error('API key is not configured.');
+  }
+
+  const thoughtBridge = (op) => (payload) => new Promise((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return resolve({ success: false, error: 'main window unavailable', _op: op });
+    const replyChannel = `agent-thought-reply-${op}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const t = setTimeout(() => {
+      ipcMain.removeAllListeners(replyChannel);
+      resolve({ success: false, error: 'timeout', _op: op });
+    }, 5000);
+    ipcMain.once(replyChannel, (_e, res) => {
+      clearTimeout(t);
+      resolve(res);
+    });
+    if (op === 'create') mainWindow.webContents.send('spotlight-create-thought', { ...payload, _replyChannel: replyChannel });
+    else if (op === 'get') mainWindow.webContents.send('spotlight-ai-get-thought', { id: payload.id, replyChannel });
+    else if (op === 'update') mainWindow.webContents.send('spotlight-ai-update-thought', { id: payload.id, updates: payload.updates, replyChannel });
+    else if (op === 'delete') mainWindow.webContents.send('spotlight-ai-delete-thought', { id: payload.id, replyChannel });
+    else if (op === 'search') mainWindow.webContents.send('spotlight-ai-search-thoughts', { query: payload.query, replyChannel });
+  });
+
+  const triggerWorkflow = (name) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spotlight-execute-workflow', name);
+    }
+  };
+
+  const broadcastCalendarRefresh = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('calendar-refresh');
+    }
+  };
+
+  const readClipboard = async () => clipboard.readText();
+
+  const webSearch = async (query) => {
+    try {
+      return await searchWeb(query);
+    } catch (e) {
+      return { results: [], aiAnswer: null, error: e.message };
+    }
+  };
+
+  const tryWithFallback = async (attemptOpts) => {
+    try {
+      return await chatCompletion(attemptOpts);
+    } catch (err) {
+      if (err.statusCode === 429) {
+        const altKey = getAlternateApiKey(config);
+        if (altKey && altKey !== attemptOpts.apiKey) {
+          persistKeySwitch(config);
+          return await chatCompletion({ ...attemptOpts, apiKey: altKey });
+        }
+      }
+      throw err;
+    }
+  };
+
+  const ctx = {
+    event: { sender: null },
+    emitChunk: (str) => {
+      console.log('[Autopilot Agent Chunk]:', str);
+    },
+    config,
+    memory: agentMemory,
+    calendarStore,
+    notesStore,
+    calendarScheduler,
+    llm: { chatCompletion, streamChatCompletion, PROVIDERS, getDefaultModel },
+    tryWithFallback,
+    getAlternateApiKey,
+    persistKeySwitch,
+    ipc: {
+      createThought: async (data) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return null;
+        return new Promise((resolve) => {
+          const replyChannel = `agent-thought-create-reply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const t = setTimeout(() => { ipcMain.removeAllListeners(replyChannel); resolve(null); }, 5000);
+          ipcMain.once(replyChannel, (_e, res) => { clearTimeout(t); resolve(res); });
+          mainWindow.webContents.send('spotlight-save-thought', { ...data, _replyChannel: replyChannel });
+        });
+      },
+      getThought: async (id) => {
+        const r = await thoughtBridge('get')({ id });
+        return r && r._id ? r : null;
+      },
+      updateThought: async (id, updates) => {
+        return thoughtBridge('update')({ id, updates });
+      },
+      deleteThought: async (id) => {
+        return thoughtBridge('delete')({ id });
+      },
+      searchThoughts: async (query) => {
+        const r = await thoughtBridge('search')({ query });
+        if (r && r.locked) return [];
+        return Array.isArray(r) ? r : [];
+      },
+      getAllThoughts: async () => {
+        const r = await thoughtBridge('search')({ query: '' });
+        return Array.isArray(r) ? r : [];
+      },
+      updateCalendarEvent: async (id, updates) => {
+        return calendarStore.update(id, updates);
+      },
+      broadcastCalendarRefresh,
+      triggerWorkflow,
+      readClipboard,
+      webSearch,
+    },
+  };
+
+  const messages = [{ role: 'user', content: userText }];
+  return await agent.handleTurn({ messages, config, ctx, stream: false });
+}
+
+async function processClipboardAutopilot(text) {
+  if (!text) return;
+  const trimmed = text.trim();
+  if (trimmed.length < 10) return;
+
+  if (processedClips.has(trimmed)) return;
+  processedClips.add(trimmed);
+  if (processedClips.size > 20) {
+    const first = processedClips.values().next().value;
+    processedClips.delete(first);
+  }
+
+  // A. Zoom / Teams / Meet link or meeting invite patterns
+  const hasMeetingLink = /zoom\.us\/j\/|teams\.microsoft\.com\/l\/|meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i.test(trimmed);
+  const isMeetingInvite = hasMeetingLink || (/\b(schedule|meeting|invite|call|join indeed|zoom link|teams link)\b/i.test(trimmed) && /\b(at|on|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(trimmed));
+
+  // B. URLs
+  const isUrl = /^https?:\/\/[^\s]+$/i.test(trimmed);
+
+  // C. Bullet checklist / actions format
+  const hasTodoIndicators = /^\s*[\-\*•\d\.]+\s*(?:need to|todo|task|action item|must|should|will|please|fix|add|implement)\b/im.test(trimmed);
+
+  if (isMeetingInvite) {
+    console.log('Clipboard Autopilot: Processing meeting invite');
+    notifications.notify({
+      title: 'Mindspace Autopilot',
+      message: 'Extracting meeting details from clipboard...',
+      icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+      appID: 'MindSpace',
+      sound: false
+    });
+
+    const prompt = `I just copied a meeting/event invite to my clipboard. Please extract the event details (title, date, time, description/link) and schedule it using the schedule_meeting tool. Keep the date/time relative to today (shown in system prompt). Here is the clipboard text:\n\n${trimmed}`;
+    
+    runAgentInBackground(prompt).then((agentResult) => {
+      const summary = agentResult.content || 'Meeting has been successfully scheduled.';
+      notifications.notify({
+        title: '📅 Event Scheduled',
+        message: summary,
+        icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+        appID: 'MindSpace',
+        sound: true
+      });
+    }).catch((err) => {
+      console.error('Clipboard meeting autopilot failed:', err);
+    });
+
+  } else if (isUrl) {
+    try {
+      const urlObj = new URL(trimmed);
+      const ignoreHostnames = [/google\.com/i, /bing\.com/i, /yahoo\.com/i, /baidu\.com/i, /duckduckgo\.com/i, /login\./i, /oauth\./i, /accounts\./i, /localhost/i];
+      const shouldIgnore = ignoreHostnames.some(regex => regex.test(urlObj.hostname));
+      
+      if (!shouldIgnore) {
+        console.log('Clipboard Autopilot: Summarizing website URL');
+        notifications.notify({
+          title: 'Mindspace Autopilot',
+          message: `Summarizing webpage: ${urlObj.hostname}...`,
+          icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+          appID: 'MindSpace',
+          sound: false
+        });
+
+        const prompt = `Please fetch or search the website URL "${trimmed}", summarize its core contents in 3 bullet points, and create a persistent thought card on the Canvas with priority "medium", tagged with "clipboard" and "summary", referencing the URL.`;
+        
+        runAgentInBackground(prompt).then((agentResult) => {
+          const summary = agentResult.content || 'Webpage summarized and saved on Canvas.';
+          notifications.notify({
+            title: '🔗 Link Summarized',
+            message: summary,
+            icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+            appID: 'MindSpace',
+            sound: true
+          });
+        }).catch((err) => {
+          console.error('Clipboard URL summary failed:', err);
+        });
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+  } else if (hasTodoIndicators) {
+    console.log('Clipboard Autopilot: Extracting action items');
+    notifications.notify({
+      title: 'Mindspace Autopilot',
+      message: 'Extracting tasks from copied text...',
+      icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+      appID: 'MindSpace',
+      sound: false
+    });
+
+    const prompt = `I just copied some notes/messages containing tasks. Please review them, extract the main actionable todo items for ME (the user), and create individual thought cards on the Canvas for each one with correct priorities (high/medium/low). Here is the copied text:\n\n${trimmed}`;
+    
+    runAgentInBackground(prompt).then((agentResult) => {
+      const summary = agentResult.content || 'Action items created on Canvas.';
+      notifications.notify({
+        title: '📋 Tasks Extracted',
+        message: summary,
+        icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+        appID: 'MindSpace',
+        sound: true
+      });
+    }).catch((err) => {
+      console.error('Clipboard todo autopilot failed:', err);
+    });
+  }
+}
+
+async function runDailyAutopilot() {
+  const config = getAiConfigFromStore();
+  if (!config.hasKey) return;
+
+  console.log('Daily Autopilot: Initiating daily briefing & cleanup routine.');
+
+  // Database Cleanup
+  try {
+    const clipboardDbPath = path.join(app.getPath('userData'), 'mindspace-data', 'clipboard.db');
+    if (fs.existsSync(clipboardDbPath)) {
+      const Datastore = require('nedb-promises');
+      const clipboardDb = Datastore.create({ filename: clipboardDbPath, autoload: true });
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const numRemoved = await clipboardDb.remove({ timestamp: { $lt: sevenDaysAgo.toISOString() } }, { multi: true });
+      if (numRemoved > 0) {
+        console.log(`Daily Cleanup: Purged ${numRemoved} clipboard entries older than 7 days.`);
+      }
+    }
+  } catch (err) {
+    console.error('Daily Autopilot Cleanup Error:', err);
+  }
+
+  // Daily Briefing Generation (requires active unlocked window)
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log('Daily Autopilot: Main window unavailable. Skipping daily brief.');
+    return;
+  }
+
+  notifications.notify({
+    title: 'Mindspace Autopilot',
+    message: 'Compiling your Daily Briefing...',
+    icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+    appID: 'MindSpace',
+    sound: false
+  });
+
+  const prompt = `Good morning! It's a new day. Please:
+1. Scan today's calendar events (get_calendar_events with filter="today").
+2. Scan active thoughts (search_thoughts with query="").
+3. Create a beautiful "Daily Briefing" thought card on the Canvas (create_thought with content summarizing my day, priority="high", persistence="today", tags=["daily-brief"]).
+4. Clean up the Canvas: search for any finished or expired thoughts, and delete them using delete_thought to keep the canvas clean and tidy.`;
+
+  runAgentInBackground(prompt).then((agentResult) => {
+    const summary = agentResult.content || 'Your Daily Briefing card is ready on the Canvas.';
+    notifications.notify({
+      title: '☀️ Daily Briefing Ready',
+      message: summary,
+      icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+      appID: 'MindSpace',
+      sound: true
+    });
+  }).catch((err) => {
+    console.error('Daily Briefing Autopilot failed:', err);
+  });
+}
+
 
 // ─── Clipboard Polling ───
 function startClipboardPolling() {
@@ -919,6 +1398,7 @@ function startClipboardPolling() {
         content: currentText,
         timestamp: new Date().toISOString(),
       });
+      processClipboardAutopilot(currentText);
     }
 
     // Check image
@@ -940,7 +1420,114 @@ function startClipboardPolling() {
 }
 
 function stopClipboardPolling() {
-  if (clipboardPollTimer) clearInterval(clipboardPollTimer);
+  if (clipboardPollTimer) {
+    clearInterval(clipboardPollTimer);
+    clipboardPollTimer = null;
+  }
+}
+
+function registerGlobalShortcuts() {
+  try {
+    globalShortcut.unregister('Alt+Space');
+    globalShortcut.unregister('Alt+`');
+  } catch (_) { /* first run */ }
+  globalShortcut.register('Alt+Space', () => toggleSpotlight());
+  globalShortcut.register('Alt+`', () => toggleWhispr());
+}
+
+function recycleWhisprPill() {
+  clearWhisprPillTimers();
+  whisprPillDisplayState = 'idle';
+  if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
+    sendWhisprPillState('idle');
+    whisprPillWindow.hide();
+    whisprPillReady = false;
+    whisprPillReadyWaiters = [];
+    whisprPillWindow.webContents.reload();
+  } else {
+    createWhisprPill();
+  }
+}
+
+function isMindspaceActivelyInUse() {
+  if (whisprRecording || pttActive) return true;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) {
+    return true;
+  }
+  if (spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible()) {
+    return true;
+  }
+  return false;
+}
+
+async function runHourlySelfHeal() {
+  if (selfHealRunning || app.isQuitting) return;
+  selfHealRunning = true;
+  try {
+    console.log('[Self-Heal] Running hourly maintenance…');
+    forceStopWhispr();
+    stopPushToTalkMonitor();
+    startPushToTalkMonitor();
+    stopClipboardPolling();
+    startClipboardPolling();
+    registerGlobalShortcuts();
+    cachedSpotlightWorkflows = null;
+    workflowsCacheMtime = 0;
+    recycleWhisprPill();
+    if (!isMindspaceActivelyInUse()) {
+      if (spotlightWindow && !spotlightWindow.isDestroyed() && !spotlightWindow.isVisible()) {
+        spotlightReady = false;
+        spotlightPanelOpen = false;
+        spotlightWindow.webContents.reload();
+        spotlightWindow.once('ready-to-show', () => { spotlightReady = true; });
+      }
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        mainWindow.webContents.reload();
+      }
+    }
+    console.log('[Self-Heal] Complete.');
+  } catch (err) {
+    console.error('[Self-Heal] Error:', err);
+  } finally {
+    selfHealRunning = false;
+  }
+}
+
+function startHourlySelfHeal() {
+  stopHourlySelfHeal();
+  selfHealTimer = setInterval(runHourlySelfHeal, SELF_HEAL_INTERVAL_MS);
+}
+
+function stopHourlySelfHeal() {
+  if (selfHealTimer) {
+    clearInterval(selfHealTimer);
+    selfHealTimer = null;
+  }
+}
+
+function runWhisprSanityCheck() {
+  if (app.isQuitting) return;
+  // Orphaned recording state (e.g. after hours idle) with no active key hold
+  if (whisprRecording && !pttActive) {
+    console.warn('[Whispr Sanity] Stuck recording without PTT — force stopping');
+    forceStopWhispr();
+  }
+  // Stale PTT flags without recording
+  if (pttActive && !whisprRecording && !pttPendingStart) {
+    resetPttState();
+  }
+}
+
+function startWhisprSanityCheck() {
+  stopWhisprSanityCheck();
+  whisprSanityTimer = setInterval(runWhisprSanityCheck, WHISPR_SANITY_INTERVAL_MS);
+}
+
+function stopWhisprSanityCheck() {
+  if (whisprSanityTimer) {
+    clearInterval(whisprSanityTimer);
+    whisprSanityTimer = null;
+  }
 }
 
 // ─── AI Query (Commander / Braindump — preserves existing API shape) ───
@@ -1182,19 +1769,46 @@ ipcMain.on('auto-paste-full', (event, text, delayMs) => {
 // ─── Whispr — Speech-to-Text ───
 
 let whisprPillReady = false;
-let whisprPillPendingState = null;
 let whisprHideTimeout = null;
+let whisprPillErrorTimeout = null;
+let whisprPillDisplayState = 'idle';
+let whisprPillReadyWaiters = [];
+
+function clearWhisprPillTimers() {
+  if (whisprHideTimeout) {
+    clearTimeout(whisprHideTimeout);
+    whisprHideTimeout = null;
+  }
+  if (whisprPillErrorTimeout) {
+    clearTimeout(whisprPillErrorTimeout);
+    whisprPillErrorTimeout = null;
+  }
+}
+
+function sendWhisprPillState(state) {
+  if (!whisprPillWindow || whisprPillWindow.isDestroyed()) return;
+  whisprPillWindow.webContents.send('whispr-pill-state', state);
+}
+
+function waitForWhisprPillReady() {
+  if (whisprPillReady) return Promise.resolve();
+  return new Promise((resolve) => {
+    whisprPillReadyWaiters.push(resolve);
+    setTimeout(resolve, 4000);
+  });
+}
 
 function createWhisprPill() {
   if (whisprPillWindow && !whisprPillWindow.isDestroyed()) return whisprPillWindow;
 
   whisprPillReady = false;
+  whisprPillReadyWaiters = [];
 
   const display = screen.getPrimaryDisplay();
-  const pillWidth = 220;
-  const pillHeight = 48;
+  const pillWidth = 200;
+  const pillHeight = 44;
   const x = Math.round(display.workArea.x + (display.workArea.width - pillWidth) / 2);
-  const y = display.workArea.y + display.workArea.height - pillHeight - 20; // Bottom offset
+  const y = display.workArea.y + display.workArea.height - pillHeight - 20;
 
   whisprPillWindow = new BrowserWindow({
     width: pillWidth,
@@ -1208,9 +1822,11 @@ function createWhisprPill() {
     skipTaskbar: true,
     focusable: false,
     show: false,
+    hasShadow: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      backgroundThrottling: true,
     },
   });
 
@@ -1219,84 +1835,130 @@ function createWhisprPill() {
   whisprPillWindow.on('closed', () => {
     whisprPillWindow = null;
     whisprPillReady = false;
+    whisprPillReadyWaiters = [];
+    whisprPillDisplayState = 'idle';
   });
 
   return whisprPillWindow;
 }
 
-// Called by the pill renderer once its JS is initialized and listening for IPC
 ipcMain.on('whispr-pill-ready', () => {
   whisprPillReady = true;
-  // Flush any pending state that was queued before the pill was ready
-  if (whisprPillPendingState && whisprPillWindow && !whisprPillWindow.isDestroyed()) {
-    if (!whisprPillWindow.isVisible()) whisprPillWindow.show();
-    whisprPillWindow.webContents.send('whispr-pill-state', whisprPillPendingState);
-    whisprPillPendingState = null;
-  }
+  const waiters = whisprPillReadyWaiters.splice(0);
+  waiters.forEach((resolve) => resolve());
 });
 
-function showWhisprPill(state) {
-  // Cancel any pending hide — a new show takes priority
-  if (whisprHideTimeout) {
-    clearTimeout(whisprHideTimeout);
-    whisprHideTimeout = null;
+async function showWhisprPill(state) {
+  if (state === 'done') state = 'idle';
+  if (state === 'idle') {
+    hideWhisprPill();
+    return;
   }
 
-  const pill = createWhisprPill();
+  // Skip redundant updates (except re-entering listening)
+  if (state === whisprPillDisplayState && state !== 'listening') return;
 
-  if (whisprPillReady && !pill.webContents.isLoading()) {
-    // Pill is warm and ready — send immediately
-    if (!pill.isVisible()) pill.show();
-    pill.webContents.send('whispr-pill-state', state);
-    whisprPillPendingState = null;
-  } else {
-    // Pill is still loading — queue the state for when it signals ready
-    whisprPillPendingState = state;
-    // Also listen for did-finish-load as a fallback safety net
-    pill.webContents.once('did-finish-load', () => {
-      // Give the renderer a moment to set up its IPC listeners
-      setTimeout(() => {
-        if (whisprPillPendingState && whisprPillWindow && !whisprPillWindow.isDestroyed()) {
-          if (!whisprPillWindow.isVisible()) whisprPillWindow.show();
-          whisprPillWindow.webContents.send('whispr-pill-state', whisprPillPendingState);
-          whisprPillPendingState = null;
-          whisprPillReady = true;
-        }
-      }, 50);
-    });
+  clearWhisprPillTimers();
+
+  const pill = createWhisprPill();
+  await waitForWhisprPillReady();
+
+  if (pill.isDestroyed()) return;
+
+  whisprPillDisplayState = state;
+
+  if (!pill.isVisible()) pill.show();
+  sendWhisprPillState(state);
+
+  if (state === 'error') {
+    whisprPillErrorTimeout = setTimeout(() => hideWhisprPill(), 1800);
   }
 }
 
 function hideWhisprPill() {
+  clearWhisprPillTimers();
+  whisprPillDisplayState = 'idle';
+
   if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
-    whisprPillWindow.webContents.send('whispr-pill-state', 'done');
-    // Cancel any previous hide timeout
-    if (whisprHideTimeout) clearTimeout(whisprHideTimeout);
+    sendWhisprPillState('idle');
     whisprHideTimeout = setTimeout(() => {
       whisprHideTimeout = null;
       if (whisprPillWindow && !whisprPillWindow.isDestroyed()) {
         whisprPillWindow.hide();
       }
-    }, 400);
+    }, 220);
   }
-  whisprPillPendingState = null;
+}
+
+function clearWhisprWatchdog() {
+  if (whisprRecordingTimeout) {
+    clearTimeout(whisprRecordingTimeout);
+    whisprRecordingTimeout = null;
+  }
+}
+
+function scheduleWhisprWatchdog() {
+  clearWhisprWatchdog();
+  whisprRecordingTimeout = setTimeout(() => {
+    console.warn('Whispr: max recording duration — force stopping');
+    forceStopWhispr();
+  }, WHISPR_MAX_RECORDING_MS);
+}
+
+function clearPttPendingStart() {
+  if (pttPendingStart) {
+    clearTimeout(pttPendingStart);
+    pttPendingStart = null;
+  }
+}
+
+function resetPttState() {
+  clearPttPendingStart();
+  pttActive = false;
+  pttStartedRecording = false;
+}
+
+function notifyWhisprRenderers(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+  if (spotlightWindow && !spotlightWindow.isDestroyed()) {
+    spotlightWindow.webContents.send(channel, payload);
+  }
+}
+
+function startWhispr() {
+  if (whisprRecording) return;
+  whisprRecording = true;
+  notifyWhisprRenderers('whispr-toggle', true);
+  showWhisprPill('listening');
+  scheduleWhisprWatchdog();
+}
+
+function stopWhispr() {
+  if (!whisprRecording) return;
+  whisprRecording = false;
+  clearWhisprWatchdog();
+  notifyWhisprRenderers('whispr-toggle', false);
+  // Pill transitions to transcribing when audio arrives, or hides via whispr-recording-ended
+}
+
+function forceStopWhispr() {
+  clearWhisprWatchdog();
+  resetPttState();
+  const wasRecording = whisprRecording;
+  whisprRecording = false;
+  if (wasRecording) {
+    notifyWhisprRenderers('whispr-force-stop');
+  }
+  hideWhisprPill();
 }
 
 function toggleWhispr() {
-  whisprRecording = !whisprRecording;
-
-  // Notify all renderer windows
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('whispr-toggle', whisprRecording);
-  }
-  if (spotlightWindow && !spotlightWindow.isDestroyed()) {
-    spotlightWindow.webContents.send('whispr-toggle', whisprRecording);
-  }
-
   if (whisprRecording) {
-    showWhisprPill('listening');
+    stopWhispr();
   } else {
-    // Pill will transition to 'transcribing' when audio is received
+    startWhispr();
   }
 }
 
@@ -1306,6 +1968,8 @@ ipcMain.handle('whispr-transcribe', async (event, audioArrayBuffer) => {
   if (!aiConfig.hasKey) {
     hideWhisprPill();
     whisprRecording = false;
+    resetPttState();
+    clearWhisprWatchdog();
     return { error: 'No API key configured. Go to Settings → AI Assistant.' };
   }
 
@@ -1314,6 +1978,34 @@ ipcMain.handle('whispr-transcribe', async (event, audioArrayBuffer) => {
   try {
     const audioBuffer = Buffer.from(audioArrayBuffer);
     const result = await whispr.transcribe(audioBuffer, aiConfig.whisprApiKey, { model: aiConfig.whisprModel });
+
+    const text = (result.text || '').trim();
+    if (isVoiceCommand(text)) {
+      runAgentInBackground(text).then((agentResult) => {
+        const finalContent = agentResult.content || 'Voice command processed successfully.';
+        notifications.notify({
+          title: 'Mindspace Autopilot',
+          message: finalContent,
+          icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+          appID: 'MindSpace',
+          sound: true,
+          wait: false
+        });
+      }).catch((err) => {
+        console.error('Voice autopilot failed:', err);
+        notifications.notify({
+          title: 'Mindspace Autopilot Error',
+          message: err.message,
+          icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
+          appID: 'MindSpace',
+          sound: true,
+          wait: false
+        });
+      });
+
+      hideWhisprPill();
+      return { text, isCommand: true };
+    }
 
     // Smart routing: send result to the focused window, or paste externally
     const spotlightVisible = spotlightWindow && !spotlightWindow.isDestroyed() && spotlightWindow.isVisible();
@@ -1334,10 +2026,11 @@ ipcMain.handle('whispr-transcribe', async (event, audioArrayBuffer) => {
   } catch (err) {
     console.error('Whispr transcription error:', err.message);
     showWhisprPill('error');
-    setTimeout(() => hideWhisprPill(), 2000);
     return { error: err.message };
   } finally {
     whisprRecording = false;
+    resetPttState();
+    clearWhisprWatchdog();
   }
 });
 
@@ -1386,9 +2079,51 @@ ipcMain.on('whispr-toggle-from-renderer', () => {
   toggleWhispr();
 });
 
+ipcMain.on('whispr-recording-failed', () => {
+  forceStopWhispr();
+});
+
+ipcMain.on('whispr-recording-ended', (_event, { hasAudio } = {}) => {
+  if (!hasAudio) hideWhisprPill();
+});
+
 // ─── Push-to-Talk (Right Shift key) ───
-let pttProcess = null;
-let pttActive = false;
+
+function handlePttKeyDown() {
+  if (pttActive) return;
+  if (whisprRecording) forceStopWhispr();
+
+  pttActive = true;
+  clearPttPendingStart();
+  pttStartedRecording = false;
+
+  // Ignore accidental taps — only start mic after brief hold
+  pttPendingStart = setTimeout(() => {
+    pttPendingStart = null;
+    if (!pttActive) return;
+    pttStartedRecording = true;
+    startWhispr();
+  }, PTT_MIN_HOLD_MS);
+}
+
+function handlePttKeyUp() {
+  if (!pttActive) return;
+
+  const hadPendingStart = !!pttPendingStart;
+  clearPttPendingStart();
+  pttActive = false;
+
+  // Quick tap: never opened mic — just reset
+  if (hadPendingStart && !pttStartedRecording) {
+    hideWhisprPill();
+    return;
+  }
+
+  if (pttStartedRecording || whisprRecording) {
+    pttStartedRecording = false;
+    stopWhispr();
+  }
+}
 
 function startPushToTalkMonitor() {
   const psScript = `
@@ -1401,7 +2136,11 @@ public class KeyStateMonitor {
 }
 "@
 $$VK_RSHIFT = 0xA1
-$$wasDown = $$false
+for ($$i = 0; $$i -lt 6; $$i++) {
+    [void][KeyStateMonitor]::GetAsyncKeyState($$VK_RSHIFT)
+    Start-Sleep -Milliseconds 50
+}
+$$wasDown = ([KeyStateMonitor]::GetAsyncKeyState($$VK_RSHIFT) -band 0x8000) -ne 0
 while ($$true) {
     $$down = ([KeyStateMonitor]::GetAsyncKeyState($$VK_RSHIFT) -band 0x8000) -ne 0
     if ($$down -and -not $$wasDown) {
@@ -1429,22 +2168,15 @@ while ($$true) {
     buffer = lines.pop() || '';
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed === 'DOWN' && !pttActive && !whisprRecording) {
-        pttActive = true;
-        toggleWhispr();
-      } else if (trimmed === 'UP' && pttActive) {
-        pttActive = false;
-        if (whisprRecording) {
-          toggleWhispr();
-        }
-      }
+      if (trimmed === 'DOWN') handlePttKeyDown();
+      else if (trimmed === 'UP') handlePttKeyUp();
     }
   });
 
   pttProcess.stderr.on('data', (d) => console.error('PTT monitor:', d.toString()));
-  pttProcess.on('exit', (code) => {
+  pttProcess.on('exit', () => {
     pttProcess = null;
-    // Auto-restart unless app is quitting
+    if (pttActive || whisprRecording) forceStopWhispr();
     if (!app.isQuitting) {
       setTimeout(startPushToTalkMonitor, 2000);
     }

@@ -37,9 +37,9 @@ const Notes = {
     });
     document.getElementById('notes-modal-save').addEventListener('click', () => this.save());
     document.getElementById('notes-modal-delete').addEventListener('click', () => this.deleteCurrent());
-    
+
     const editBtn = document.getElementById('notes-modal-edit');
-    if(editBtn) {
+    if (editBtn) {
       editBtn.addEventListener('click', () => {
         this.openModal(this.editingId, 'edit');
       });
@@ -173,7 +173,7 @@ const Notes = {
     // Hover actions
     const actions = document.createElement('div');
     actions.className = 'notes-card-actions';
-    
+
     const editBtn = document.createElement('button');
     editBtn.className = 'notes-action-btn edit';
     editBtn.title = 'Edit';

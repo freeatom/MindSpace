@@ -45,6 +45,7 @@ function normalizeEvent(data) {
     created_at: data.created_at || now,
     updated_at: now,
     snoozed_until: data.snoozed_until || null,
+    thought_id: data.thought_id || null,
   };
 }
 

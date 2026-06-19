@@ -35,6 +35,24 @@ const App = {
     this.bindKeyboardShortcuts();
     this.bindSpotlight();
     this.bindWhispr();
+    this.bindSyncListeners();
+  },
+
+  bindSyncListeners() {
+    window.electronAPI.onCalendarRefresh(() => {
+      if (window.Calendar && Calendar.initialized) {
+        Calendar.refresh();
+      }
+    });
+
+    window.electronAPI.onThoughtRefresh(() => {
+      if (window.Canvas && Canvas.initialized) {
+        Canvas.refresh();
+      }
+      if (window.Timeline && typeof Timeline.render === 'function') {
+        Timeline.render();
+      }
+    });
   },
 
   bindWhispr() {

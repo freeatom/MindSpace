@@ -172,6 +172,14 @@ const store = {
   },
 
   async finishThought(id) {
+    const t = await this.getThought(id);
+    if (t && t.calendarEventId) {
+      try {
+        await window.electronAPI.updateCalendarEvent(t.calendarEventId, { status: 'completed' });
+      } catch (e) {
+        console.error('Failed to sync finish state to calendar', e);
+      }
+    }
     return this.updateThought(id, {
       status: 'finished',
       finishedAt: new Date().toISOString(),

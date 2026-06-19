@@ -12,3 +12,5 @@ clipboard.db
 tools.db
 workflows.db
 .env
+dev-ideas.md
+

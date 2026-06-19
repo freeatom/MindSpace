@@ -2,7 +2,9 @@
    Brain Dump — Zen-mode textarea + categorized preview
    ═══════════════════════════════════════════════════════════════ */
 
-#braindump-view { flex-direction: column; }
+#braindump-view {
+  flex-direction: column;
+}
 
 .braindump-container {
   flex: 1;

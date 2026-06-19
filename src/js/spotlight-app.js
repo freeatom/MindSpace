@@ -221,6 +221,30 @@
   let whisprMediaRecorder = null;
   let whisprChunks = [];
   let whisprStream = null;
+  let whisprSession = 0;
+  let whisprOpChain = Promise.resolve();
+
+  function enqueueWhisprOp(fn) {
+    whisprOpChain = whisprOpChain.then(fn, fn);
+    return whisprOpChain;
+  }
+
+  function cleanupWhisprMic() {
+    if (whisprMediaRecorder) {
+      const recorder = whisprMediaRecorder;
+      whisprMediaRecorder = null;
+      recorder.onstop = null;
+      try {
+        if (recorder.state !== 'inactive') recorder.stop();
+      } catch (_) { /* already stopped */ }
+    }
+    if (whisprStream) {
+      whisprStream.getTracks().forEach((t) => t.stop());
+      whisprStream = null;
+    }
+    whisprChunks = [];
+    whisprBtn?.classList.remove('recording');
+  }
 
   function getActiveInput() {
     if (currentMode === 'thought') return thoughtInput;
@@ -231,11 +255,19 @@
   }
 
   async function startWhisprRecording() {
+    const session = ++whisprSession;
+    cleanupWhisprMic();
+
     try {
       whisprStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      whisprChunks = [];
 
-      // Use webm/opus which Groq Whisper API accepts
+      if (session !== whisprSession) {
+        whisprStream.getTracks().forEach((t) => t.stop());
+        whisprStream = null;
+        return;
+      }
+
+      whisprChunks = [];
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
@@ -244,40 +276,44 @@
       whisprMediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) whisprChunks.push(e.data);
       };
-      whisprMediaRecorder.start(250); // Collect chunks every 250ms
+      whisprMediaRecorder.start(250);
       whisprBtn?.classList.add('recording');
     } catch (err) {
       console.error('Whispr mic access failed:', err);
-      whisprBtn?.classList.remove('recording');
+      cleanupWhisprMic();
+      window.spotlightAPI.whisprRecordingFailed();
     }
   }
 
   async function stopWhisprRecording() {
-    if (!whisprMediaRecorder || whisprMediaRecorder.state === 'inactive') {
-      whisprBtn?.classList.remove('recording');
+    const session = ++whisprSession;
+    const recorder = whisprMediaRecorder;
+
+    if (!recorder || recorder.state === 'inactive') {
+      cleanupWhisprMic();
+      window.spotlightAPI.whisprRecordingEnded(false);
       return;
     }
 
     return new Promise((resolve) => {
-      whisprMediaRecorder.onstop = async () => {
-        whisprBtn?.classList.remove('recording');
-
-        // Stop mic stream
-        if (whisprStream) {
-          whisprStream.getTracks().forEach((t) => t.stop());
-          whisprStream = null;
-        }
-
-        if (whisprChunks.length === 0) {
+      recorder.onstop = async () => {
+        if (session !== whisprSession) {
           resolve();
           return;
         }
 
-        const blob = new Blob(whisprChunks, { type: 'audio/webm' });
+        const chunks = whisprChunks.slice();
         whisprChunks = [];
+        cleanupWhisprMic();
 
-        // Send audio to main process for transcription
-        // Main.js handles routing the result to the correct target
+        if (chunks.length === 0) {
+          window.spotlightAPI.whisprRecordingEnded(false);
+          resolve();
+          return;
+        }
+
+        window.spotlightAPI.whisprRecordingEnded(true);
+        const blob = new Blob(chunks, { type: 'audio/webm' });
         const arrayBuffer = await blob.arrayBuffer();
         const result = await window.spotlightAPI.whisprTranscribe(arrayBuffer);
 
@@ -288,7 +324,12 @@
         resolve();
       };
 
-      whisprMediaRecorder.stop();
+      try {
+        recorder.stop();
+      } catch (_) {
+        cleanupWhisprMic();
+        resolve();
+      }
     });
   }
 
@@ -314,13 +355,15 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // Listen for toggle from main process (Alt+` shortcut)
-  window.spotlightAPI.onWhisprToggle(async (recording) => {
-    if (recording) {
-      await startWhisprRecording();
-    } else {
-      await stopWhisprRecording();
-    }
+  window.spotlightAPI.onWhisprToggle((recording) => {
+    enqueueWhisprOp(() => (recording ? startWhisprRecording() : stopWhisprRecording()));
+  });
+
+  window.spotlightAPI.onWhisprForceStop(() => {
+    enqueueWhisprOp(async () => {
+      whisprSession++;
+      cleanupWhisprMic();
+    });
   });
 
   // Listen for transcription results routed by main.js
@@ -539,7 +582,7 @@
           images: pastedImage ? [pastedImage] : [],
           tags: selectedTags.length ? selectedTags : ['spotlight'],
         });
-        
+
         thoughtInput.value = '';
         pastedImage = null;
         if (thoughtType) thoughtType.textContent = 'Thought';
@@ -558,8 +601,10 @@
         }
       }
 
+      const generatedId = 't_' + Date.now() + Math.random().toString(36).substr(2, 9);
       // Save thought
       const thoughtData = {
+        id: generatedId,
         content: val,
         priority: selectedPriority,
         persistence: selectedPersistence,
@@ -571,6 +616,7 @@
       if (selectedPersistence === 'today' || selectedPersistence === 'until_date') {
         try {
           const result = await window.spotlightAPI.createCalendarFromThought({
+            id: generatedId,
             content: val,
             priority: selectedPriority,
             persistence: selectedPersistence,
@@ -865,7 +911,7 @@
 
       // 2. Exact prefix match for Ghost Text and Tab/Enter hijack
       const match = loadedWorkflows.find((w) => w.name.toLowerCase().startsWith(query));
-      
+
       // Only show ghost text if they are still typing the first word without trailing spaces
       if (match && val === firstWord) {
         currentWorkflowMatch = match;
@@ -988,6 +1034,8 @@
       if (chatSessionTitle) chatSessionTitle.textContent = title;
     }
 
+    rawStreamContent = ''; // reset stream content
+
     const wrap = document.createElement('div');
     wrap.className = 'msg-ai-wrap';
     wrap.innerHTML = `
@@ -1006,25 +1054,39 @@
     streamingBubble = document.getElementById('streaming-bubble');
     scrollChat();
 
+    const coreMemory = await window.spotlightAPI.getMemory();
     const messages = [
-      { role: 'system', content: CHAT_SYSTEM },
-      ...chatHistory.slice(-20),
+      { role: 'system', content: CHAT_SYSTEM }
     ];
+    if (coreMemory) {
+      messages.push({ role: 'system', content: `[ACTIVE MEMORY INJECTED - USE THIS FOR PERSONALIZED CONTEXT]:\n${coreMemory}` });
+    }
+    messages.push(...chatHistory.slice(-20));
 
     let assistantText = '';
     try {
       if (aiConfig.supportsStream) {
         await window.spotlightAPI.chat({ messages, stream: true });
-        assistantText = streamingBubble?.textContent || '';
+        assistantText = rawStreamContent || '';
       } else {
         const res = await window.spotlightAPI.chat({ messages, stream: false });
         assistantText = res.content || '';
-        if (streamingBubble) streamingBubble.textContent = assistantText;
+        // If not streaming, we still want to parse the final markdown
+        rawStreamContent = assistantText;
+        appendStreamingChunk('');
       }
       if (!assistantText) assistantText = '(No response)';
       streamingBubble?.classList.remove('streaming');
       streamingBubble?.removeAttribute('id');
-      chatHistory.push({ role: 'assistant', content: assistantText });
+
+      // Strip the injected thinking blocks so the LLM doesn't hallucinate markdown tool calls in the future
+      let cleanAssistantText = assistantText
+        .replace(/> (?:🧠|🛠️|✅|⚠️)[^\n]*(?:\n|$)/g, '')
+        .trim();
+
+      if (!cleanAssistantText) cleanAssistantText = '(Tool execution completed)';
+
+      chatHistory.push({ role: 'assistant', content: cleanAssistantText });
 
       wrap.querySelector('.act-copy')?.addEventListener('click', () => {
         navigator.clipboard.writeText(assistantText);
@@ -1180,9 +1242,59 @@
   chatHistoryBtn?.addEventListener('click', toggleChatHistory);
   chatHistoryClose?.addEventListener('click', closeChatHistory);
 
+  let rawStreamContent = '';
+
+  function parseMarkdownAndThoughts(text) {
+    let html = escapeHtml(text);
+    let detailsBlocks = '';
+    let stepCount = 0;
+
+    const blockRegex = /&gt;\s*(🧠[^:]+|🛠️[^:]+|✅[^:]+|⚠️[^:]+):\s*(.*?)(?:\n|<br>|$)/g;
+
+    html = html.replace(blockRegex, (match, prefix, content) => {
+      stepCount++;
+      let color = 'var(--text-muted)';
+      let border = 'var(--border)';
+
+      if (prefix.includes('🧠')) {
+        border = 'var(--border-focus)';
+      } else if (prefix.includes('🛠️')) {
+        border = 'var(--accent)';
+        color = 'var(--accent-text)';
+      } else if (prefix.includes('✅')) {
+        border = '#10b981';
+        color = '#10b981';
+      } else if (prefix.includes('⚠️')) {
+        border = '#f59e0b';
+        color = '#f59e0b';
+      }
+
+      detailsBlocks += `<div style="border-left: 2px solid ${border}; padding-left: 8px; color: ${color}; margin-bottom: 4px;"><b>${prefix}:</b> <i>${content}</i></div>`;
+      return '';
+    });
+
+    html = html.replace(/^(<br>|\n|\s)+/, '').replace(/(<br>|\n|\s)+$/, '');
+
+    let header = '';
+    if (stepCount > 0) {
+      header = `<details style="margin-bottom: 12px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;">
+        <summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-sub); user-select: none;">🧠 AI Reasoning (${stepCount} steps)</summary>
+        <div style="margin-top: 8px; font-size: 11px; display: flex; flex-direction: column;">
+          ${detailsBlocks}
+        </div>
+      </details>`;
+    }
+
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+    html = html.replace(/\n/g, '<br>');
+
+    return header + html;
+  }
+
   function appendStreamingChunk(chunk) {
     if (streamingBubble) {
-      streamingBubble.textContent += chunk;
+      rawStreamContent += chunk;
+      streamingBubble.innerHTML = parseMarkdownAndThoughts(rawStreamContent);
       scrollChat();
     }
   }
@@ -1198,13 +1310,16 @@
   function appendAssistantMessage(text) {
     const wrap = document.createElement('div');
     wrap.className = 'msg-ai-wrap';
+
+    let html = parseMarkdownAndThoughts(text);
+
     wrap.innerHTML = `
       <div class="msg-meta">
         <div class="model-icon">G</div>
         <span>${escapeHtml(modelLabel.textContent)}</span>
         <span style="margin-left:auto">${formatTime()}</span>
       </div>
-      <div class="msg-ai">${escapeHtml(text)}</div>
+      <div class="msg-ai">${html}</div>
     `;
     chatMessages.appendChild(wrap);
     scrollChat();

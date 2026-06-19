@@ -48,13 +48,15 @@ function httpsRequest({ hostname, path: urlPath, method, headers, body }) {
   });
 }
 
-async function chatCompletion({ provider, apiKey, model, messages }) {
+async function chatCompletion({ provider, apiKey, model, messages, tools }) {
   const config = PROVIDERS[provider];
   if (!config) throw new Error(`Unknown provider: ${provider}`);
 
   const resolvedModel = model || getDefaultModel(provider);
 
   if (provider === 'gemini') {
+    // Gemini tool calling requires a different structure, we skip it for now
+    // and just pass standard text messages.
     const body = JSON.stringify({
       contents: messages.map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
@@ -88,6 +90,11 @@ async function chatCompletion({ provider, apiKey, model, messages }) {
     temperature: 0.4,
     stream: false,
   };
+  
+  if (tools && tools.length > 0) {
+    payload.tools = tools;
+  }
+
   const body = JSON.stringify(payload);
   const headers = {
     'Content-Type': 'application/json',
@@ -108,8 +115,12 @@ async function chatCompletion({ provider, apiKey, model, messages }) {
     err.statusCode = statusCode;
     throw err;
   }
-  const content = parsed.choices?.[0]?.message?.content || '';
-  return { content, raw: parsed };
+  
+  const msg = parsed.choices?.[0]?.message;
+  const content = msg?.content || '';
+  const tool_calls = msg?.tool_calls || null;
+  
+  return { content, tool_calls, raw: parsed };
 }
 
 function streamChatCompletion({ provider, apiKey, model, messages, onChunk, onDone, onError }) {

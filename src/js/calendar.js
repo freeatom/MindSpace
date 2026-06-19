@@ -533,6 +533,8 @@ const Calendar = {
   },
 
   showNotification(data) {
+    // Native + in-app calendar notifications disabled (see services/notifications.js)
+    return;
     let panel = document.getElementById('cal-notification-panel');
     if (!panel) {
       panel = document.createElement('div');

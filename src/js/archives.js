@@ -146,7 +146,7 @@ const Archives = {
     grid.innerHTML = '';
 
     let filtered = [...this.items];
-    
+
     // Vault filter
     filtered = filtered.filter(item => (!!item.isVaulted) === this.showingVault);
 
@@ -643,7 +643,7 @@ const Archives = {
     // Reset state
     input.value = '';
     errorEl.textContent = '';
-    
+
     // Show modal
     overlay.style.display = 'flex';
     // Small delay to allow CSS transition to work
@@ -672,7 +672,7 @@ const Archives = {
         errorEl.textContent = 'Please enter your password';
         return;
       }
-      
+
       newConfirm.disabled = true;
       try {
         const valid = await store.verifyPassword(password);
@@ -693,7 +693,7 @@ const Archives = {
     };
 
     newConfirm.addEventListener('click', handleConfirm);
-    
+
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
