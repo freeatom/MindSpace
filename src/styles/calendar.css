@@ -67,7 +67,9 @@
   color: var(--text-secondary);
 }
 
-.cal-nav-btn:hover { background: var(--bg-tertiary); }
+.cal-nav-btn:hover {
+  background: var(--bg-tertiary);
+}
 
 .cal-period-label {
   font-size: 14px;
@@ -77,7 +79,8 @@
   color: var(--text-primary);
 }
 
-.cal-today-btn, .cal-add-btn {
+.cal-today-btn,
+.cal-add-btn {
   padding: 7px 14px;
   border-radius: var(--radius-sm);
   font-size: 12px;
@@ -170,9 +173,14 @@
   transition: background var(--transition-fast);
 }
 
-.cal-event-card:hover { background: var(--bg-tertiary); }
+.cal-event-card:hover {
+  background: var(--bg-tertiary);
+}
 
-.cal-event-card-main { flex: 1; min-width: 0; }
+.cal-event-card-main {
+  flex: 1;
+  min-width: 0;
+}
 
 .cal-event-card-title {
   display: block;
@@ -181,7 +189,8 @@
   color: var(--text-primary);
 }
 
-.cal-event-card-meta, .cal-event-card-desc {
+.cal-event-card-meta,
+.cal-event-card-desc {
   display: block;
   font-size: 11px;
   color: var(--text-muted);
@@ -201,8 +210,13 @@
   color: var(--text-muted);
 }
 
-.cal-status-overdue { color: var(--priority-high); }
-.cal-status-completed { color: var(--priority-low); }
+.cal-status-overdue {
+  color: var(--priority-high);
+}
+
+.cal-status-completed {
+  color: var(--priority-low);
+}
 
 .cal-empty-list {
   font-size: 12px;
@@ -236,7 +250,10 @@
   color: var(--text-primary);
 }
 
-.cal-history-search { flex: 1; min-width: 200px; }
+.cal-history-search {
+  flex: 1;
+  min-width: 200px;
+}
 
 /* Month view */
 .cal-month-grid {
@@ -262,9 +279,19 @@
   transition: background var(--transition-fast);
 }
 
-.cal-month-cell.today { background: var(--accent-primary-light); }
-.cal-month-cell.drag-over { background: var(--accent-mint-light); border-color: var(--accent-primary); }
-.cal-month-cell.empty { background: transparent; border: none; }
+.cal-month-cell.today {
+  background: var(--accent-primary-light);
+}
+
+.cal-month-cell.drag-over {
+  background: var(--accent-mint-light);
+  border-color: var(--accent-primary);
+}
+
+.cal-month-cell.empty {
+  background: transparent;
+  border: none;
+}
 
 .cal-month-daynum {
   font-size: 11px;
@@ -290,12 +317,29 @@
   cursor: grab;
 }
 
-.cal-cat-meeting { background: #6366f1; }
-.cal-cat-task { background: #10b981; }
-.cal-cat-reminder { background: #f59e0b; }
-.cal-cat-personal { background: #ec4899; }
-.cal-cat-work { background: #3b82f6; }
-.cal-cat-custom { background: #8b5cf6; }
+.cal-cat-meeting {
+  background: #6366f1;
+}
+
+.cal-cat-task {
+  background: #10b981;
+}
+
+.cal-cat-reminder {
+  background: #f59e0b;
+}
+
+.cal-cat-personal {
+  background: #ec4899;
+}
+
+.cal-cat-work {
+  background: #3b82f6;
+}
+
+.cal-cat-custom {
+  background: #8b5cf6;
+}
 
 /* Week view */
 .cal-week-grid {
@@ -312,7 +356,9 @@
   overflow: hidden;
 }
 
-.cal-week-col.today { border-color: var(--accent-primary); }
+.cal-week-col.today {
+  border-color: var(--accent-primary);
+}
 
 .cal-week-header {
   padding: 8px;
@@ -323,7 +369,9 @@
   border-bottom: 1px solid var(--border-color-light);
 }
 
-.cal-week-events { padding: 6px; }
+.cal-week-events {
+  padding: 6px;
+}
 
 .cal-week-event {
   padding: 6px 8px;
@@ -334,11 +382,22 @@
   color: #fff;
 }
 
-.cal-week-event span { display: block; }
-.cal-week-time { font-weight: 700; font-size: 10px; opacity: 0.9; }
+.cal-week-event span {
+  display: block;
+}
+
+.cal-week-time {
+  font-weight: 700;
+  font-size: 10px;
+  opacity: 0.9;
+}
 
 /* Day view */
-.cal-day-timeline { display: flex; flex-direction: column; gap: 8px; }
+.cal-day-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 .cal-day-slot {
   display: flex;
@@ -351,7 +410,9 @@
   cursor: pointer;
 }
 
-.cal-day-slot:hover { background: var(--bg-tertiary); }
+.cal-day-slot:hover {
+  background: var(--bg-tertiary);
+}
 
 .cal-day-time {
   font-size: 13px;
@@ -360,9 +421,21 @@
   min-width: 80px;
 }
 
-.cal-day-info strong { display: block; font-size: 14px; }
-.cal-day-cat { font-size: 11px; color: var(--text-muted); }
-.cal-day-info p { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.cal-day-info strong {
+  display: block;
+  font-size: 14px;
+}
+
+.cal-day-cat {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cal-day-info p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
 
 /* Modal */
 .cal-modal {
@@ -392,7 +465,10 @@
   justify-content: space-between;
 }
 
-.cal-modal-header h3 { margin: 0; font-size: 18px; }
+.cal-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
 
 .cal-form-row {
   display: grid;
@@ -423,7 +499,10 @@
   font-family: inherit;
 }
 
-.cal-field textarea { min-height: 80px; resize: vertical; }
+.cal-field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
 
 .cal-modal-dates {
   display: flex;
@@ -506,9 +585,20 @@
   cursor: pointer;
 }
 
-#cal-modal-picker .cal-cell:hover { background: var(--bg-tertiary); }
-#cal-modal-picker .cal-cell.today { background: var(--accent-primary-light); font-weight: 700; }
-#cal-modal-picker .cal-cell.selected { background: var(--accent-primary); color: #fff; }
+#cal-modal-picker .cal-cell:hover {
+  background: var(--bg-tertiary);
+}
+
+#cal-modal-picker .cal-cell.today {
+  background: var(--accent-primary-light);
+  font-weight: 700;
+}
+
+#cal-modal-picker .cal-cell.selected {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
 #cal-modal-picker .cal-cell.has-event::after {
   content: '';
   display: block;
@@ -548,9 +638,21 @@
   transform: translateX(0);
 }
 
-.cal-notification-content strong { display: block; font-size: 13px; }
-.cal-notification-content span { font-size: 11px; color: var(--text-muted); }
-.cal-notification-content p { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.cal-notification-content strong {
+  display: block;
+  font-size: 13px;
+}
+
+.cal-notification-content span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cal-notification-content p {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
 
 .cal-notification-actions {
   display: flex;
@@ -594,4 +696,6 @@
   transition: transform var(--transition-fast);
 }
 
-#fab-add-event:hover { transform: scale(1.08); }
+#fab-add-event:hover {
+  transform: scale(1.08);
+}

@@ -344,6 +344,7 @@
       z-index: 2;
       background: transparent;
     }
+
     #thought-ghost {
       display: none;
       position: absolute;
@@ -867,6 +868,106 @@
       50% {
         opacity: 0;
       }
+    }
+
+    /* ─── Agent Verification Badges (✅ / ⚠️ / 🧠) ─── */
+    .agent-verify {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin: 6px 0;
+      padding: 5px 9px;
+      font-size: 10.5px;
+      line-height: 1.4;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      font-weight: 500;
+    }
+
+    .agent-verify b {
+      font-weight: 700;
+    }
+
+    .agent-verify-ok {
+      background: rgba(16, 185, 129, 0.08);
+      border-color: rgba(16, 185, 129, 0.25);
+      color: #047857;
+    }
+
+    .agent-verify-warn {
+      background: rgba(245, 158, 11, 0.08);
+      border-color: rgba(245, 158, 11, 0.30);
+      color: #b45309;
+    }
+
+    .agent-verify-mem {
+      background: rgba(91, 82, 240, 0.07);
+      border-color: rgba(91, 82, 240, 0.20);
+      color: var(--accent-text);
+    }
+
+    /* ─── Agent Reasoning Panel (collapsible dropdown) ─── */
+    .agent-reasoning-panel {
+      margin: 0 0 10px 0;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0;
+      font-size: 10.5px;
+      color: var(--text-sub);
+      overflow: hidden;
+    }
+
+    .agent-reasoning-panel>summary {
+      cursor: pointer;
+      padding: 7px 10px;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      color: var(--text-sub);
+      background: var(--bg-input);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .agent-reasoning-panel>summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .agent-reasoning-panel>summary::after {
+      content: '▾';
+      font-size: 10px;
+      color: var(--text-muted);
+      transition: transform 0.15s;
+    }
+
+    .agent-reasoning-panel:not([open])>summary::after {
+      transform: rotate(-90deg);
+    }
+
+    .agent-reasoning-summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .agent-reasoning-meta {
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+
+    .agent-reasoning-body {
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
 
     .msg-actions {
@@ -1643,7 +1744,7 @@
     .sl-thought-card:hover {
       transform: translateY(-1px);
       box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06),
-                  0 0 0 1px var(--card-priority-color, var(--border));
+        0 0 0 1px var(--card-priority-color, var(--border));
       border-color: var(--card-priority-color, var(--border-focus));
     }
 
@@ -1700,13 +1801,29 @@
     }
 
     @keyframes sl-pulse-badge {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(91, 82, 240, 0.4); }
-      50% { box-shadow: 0 0 0 3px rgba(91, 82, 240, 0); }
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(91, 82, 240, 0.4);
+      }
+
+      50% {
+        box-shadow: 0 0 0 3px rgba(91, 82, 240, 0);
+      }
     }
 
     @keyframes sl-pulse-dot {
-      0%, 100% { opacity: 0.6; transform: scale(0.8); }
-      50% { opacity: 1; transform: scale(1.2); }
+
+      0%,
+      100% {
+        opacity: 0.6;
+        transform: scale(0.8);
+      }
+
+      50% {
+        opacity: 1;
+        transform: scale(1.2);
+      }
     }
 
     .sl-thought-card-content {
@@ -1784,7 +1901,7 @@
       font-weight: 400;
       letter-spacing: 0.2px;
     }
-    
+
     .sl-locked-vault svg {
       width: 28px;
       height: 28px;
@@ -1832,7 +1949,8 @@
         <span class="brand">MindSpace</span>
         <div class="topbar-right">
           <button type="button" class="open-app-btn" id="open-app-btn" title="Open in MindSpace App">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
               <polyline points="15 3 21 3 21 9" />
               <line x1="10" y1="14" x2="21" y2="3" />
@@ -1854,7 +1972,8 @@
             </svg>
           </div>
           <button type="button" class="close-spotlight-btn" id="close-spotlight-btn" title="Close Spotlight (Esc)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

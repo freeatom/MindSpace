@@ -42,6 +42,17 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
   // Memory
   getMemory: () => ipcRenderer.invoke('spotlight-get-memory'),
 
+  // ─── Peak Intelligence Agent — Memory / Knowledge Graph / Scratchpad ───
+  agentMemorySnapshot: () => ipcRenderer.invoke('agent-memory-snapshot'),
+  agentScratchpadRead: () => ipcRenderer.invoke('agent-scratchpad-read'),
+  agentScratchpadUpdate: (patch) => ipcRenderer.invoke('agent-scratchpad-update', patch),
+  agentEntityUpsert: (payload) => ipcRenderer.invoke('agent-entity-upsert', payload),
+  agentEntityList: (filters) => ipcRenderer.invoke('agent-entity-list', filters),
+  agentEntityDelete: (id) => ipcRenderer.invoke('agent-entity-delete', id),
+  agentRelationUpsert: (payload) => ipcRenderer.invoke('agent-relation-upsert', payload),
+  agentHistory: (limit) => ipcRenderer.invoke('agent-history', limit),
+  agentLearnFacts: (facts) => ipcRenderer.invoke('agent-learn-facts', facts),
+
   // Thought Stack
   getRecentThoughts: () => ipcRenderer.invoke('spotlight-get-recent-thoughts'),
   openThought: (id) => ipcRenderer.send('spotlight-open-thought', id),
@@ -49,7 +60,10 @@ contextBridge.exposeInMainWorld('spotlightAPI', {
 
   // Whispr (speech-to-text)
   onWhisprToggle: (callback) => ipcRenderer.on('whispr-toggle', (e, recording) => callback(recording)),
+  onWhisprForceStop: (callback) => ipcRenderer.on('whispr-force-stop', () => callback()),
   whisprTranscribe: (audioBuffer) => ipcRenderer.invoke('whispr-transcribe', audioBuffer),
+  whisprRecordingFailed: () => ipcRenderer.send('whispr-recording-failed'),
+  whisprRecordingEnded: (hasAudio) => ipcRenderer.send('whispr-recording-ended', { hasAudio: !!hasAudio }),
   onWhisprResult: (callback) => ipcRenderer.on('whispr-result', (e, result) => callback(result)),
   whisprToggleFromRenderer: () => ipcRenderer.send('whispr-toggle-from-renderer'),
 });

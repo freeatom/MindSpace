@@ -59,16 +59,16 @@ const Canvas = {
       const vw = (window.innerWidth > 800) ? window.innerWidth : (window.screen && window.screen.availWidth ? window.screen.availWidth : 1200);
       const width31 = (vw * 0.31) - 20;
       return {
-        high:   { left: 24, right: 24 + width31 },
+        high: { left: 24, right: 24 + width31 },
         medium: { left: (vw * 0.31) + 24, right: (vw * 0.31) + 24 + width31 },
-        low:    { left: (vw * 0.62) + 24, right: (vw * 0.62) + 24 + width31 }
+        low: { left: (vw * 0.62) + 24, right: (vw * 0.62) + 24 + width31 }
       };
     }
 
     return {
-      high:   { left: high.offsetLeft,   right: high.offsetLeft + hw },
+      high: { left: high.offsetLeft, right: high.offsetLeft + hw },
       medium: { left: medium.offsetLeft, right: medium.offsetLeft + mw },
-      low:    { left: low.offsetLeft,    right: low.offsetLeft + lw },
+      low: { left: low.offsetLeft, right: low.offsetLeft + lw },
     };
   },
 
@@ -462,7 +462,7 @@ const Canvas = {
         nowBadge.className = 'now-badge';
         nowBadge.innerHTML = `<span class="now-pulse"></span> NOW`;
         card.insertBefore(nowBadge, card.firstChild);
-        
+
         if (nowBtn) {
           nowBtn.classList.add('active');
           nowBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
@@ -474,7 +474,7 @@ const Canvas = {
         card.classList.remove('marked-now');
         const badge = card.querySelector('.now-badge');
         if (badge) badge.remove();
-        
+
         if (nowBtn) {
           nowBtn.classList.remove('active');
           nowBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
@@ -1128,7 +1128,7 @@ const Canvas = {
     });
 
     input.addEventListener('click', (e) => e.stopPropagation());
-    
+
     // Prevent drag/pan interactions and unexpected closing when clicking inside popover
     popover.addEventListener('mousedown', (e) => e.stopPropagation());
     popover.addEventListener('touchstart', (e) => e.stopPropagation());

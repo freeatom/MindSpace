@@ -1,4 +1,4 @@
-const notifier = require('node-notifier');
+const notifications = require('./notifications');
 const path = require('path');
 const calendarStore = require('./calendar-store');
 
@@ -8,7 +8,7 @@ class CalendarScheduler {
     this.timers = new Map();
     this.pollInterval = null;
 
-    notifier.on('click', (notifierObject, options, e) => {
+    notifications.onClick((notifierObject, options, e) => {
       const win = this.getMainWindow();
       if (win && !win.isDestroyed()) {
         if (win.isMinimized()) win.restore();
@@ -77,18 +77,20 @@ class CalendarScheduler {
     const fresh = await calendarStore.getById(event._id);
     if (!fresh || fresh.status === 'cancelled' || fresh.status === 'completed') return;
 
-    this.showNativeNotification(fresh, type);
-    const win = this.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('calendar-notification', {
-        eventId: fresh._id,
-        title: fresh.event_title,
-        date: fresh.event_date,
-        time: fresh.event_time,
-        description: fresh.event_description,
-        category: fresh.category,
-        type,
-      });
+    if (notifications.isEnabled()) {
+      this.showNativeNotification(fresh, type);
+      const win = this.getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('calendar-notification', {
+          eventId: fresh._id,
+          title: fresh.event_title,
+          date: fresh.event_date,
+          time: fresh.event_time,
+          description: fresh.event_description,
+          category: fresh.category,
+          type,
+        });
+      }
     }
 
     if (type === 'start' && fresh.repeat_type && fresh.repeat_type !== 'none') {
@@ -116,15 +118,15 @@ class CalendarScheduler {
     const bodyLines = [`${event.event_date} at ${event.event_time}`];
     if (isThought) bodyLines.push('📌 From your captured thoughts');
     if (event.event_description) bodyLines.push(event.event_description.slice(0, 120));
-    
-    notifier.notify({
+
+    notifications.notify({
       title: title,
       message: bodyLines.join('\n'),
       icon: path.join(__dirname, '..', 'src', 'assets', 'icon.png'),
       sound: true,
-      wait: true,
+      wait: false,
       appID: 'MindSpace',
-      mindspaceEventId: event._id
+      mindspaceEventId: event._id,
     });
   }
 

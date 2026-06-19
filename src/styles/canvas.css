@@ -65,8 +65,8 @@
   left: 24px;
   width: calc(31vw - 20px);
   height: calc(100% - 48px);
-  background: linear-gradient(135deg, rgba(248,113,113,0.04) 0%, transparent 60%);
-  border: 1.5px dashed rgba(248,113,113,0.15);
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.04) 0%, transparent 60%);
+  border: 1.5px dashed rgba(248, 113, 113, 0.15);
 }
 
 .priority-zone-medium {
@@ -74,8 +74,8 @@
   left: calc(31vw + 24px);
   width: calc(31vw - 20px);
   height: calc(100% - 48px);
-  background: linear-gradient(135deg, rgba(251,191,36,0.04) 0%, transparent 60%);
-  border: 1.5px dashed rgba(251,191,36,0.15);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.04) 0%, transparent 60%);
+  border: 1.5px dashed rgba(251, 191, 36, 0.15);
 }
 
 .priority-zone-low {
@@ -83,8 +83,8 @@
   left: calc(62vw + 24px);
   width: calc(31vw - 20px);
   height: calc(100% - 48px);
-  background: linear-gradient(135deg, rgba(52,211,153,0.04) 0%, transparent 60%);
-  border: 1.5px dashed rgba(52,211,153,0.15);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.04) 0%, transparent 60%);
+  border: 1.5px dashed rgba(52, 211, 153, 0.15);
 }
 
 /* ─── Thought Card ─── */
@@ -111,7 +111,8 @@
 .thought-card.has-popover {
   box-shadow: var(--shadow-lg);
   border-color: var(--accent-primary-light);
-  z-index: 50; /* Ensure hovered card and its popovers render above everything else */
+  z-index: 50;
+  /* Ensure hovered card and its popovers render above everything else */
 }
 
 .thought-card.dragging {
@@ -152,13 +153,29 @@
 }
 
 @keyframes now-badge-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 82, 240, 0.3); }
-  50% { box-shadow: 0 0 0 4px rgba(91, 82, 240, 0); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(91, 82, 240, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px rgba(91, 82, 240, 0);
+  }
 }
 
 @keyframes now-dot-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
+
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }
 
 /* ─── Thought Number ─── */
@@ -441,9 +458,17 @@
   flex-shrink: 0;
 }
 
-.finished-item[data-priority="high"]::before { background: var(--priority-high); }
-.finished-item[data-priority="medium"]::before { background: var(--priority-medium); }
-.finished-item[data-priority="low"]::before { background: var(--priority-low); }
+.finished-item[data-priority="high"]::before {
+  background: var(--priority-high);
+}
+
+.finished-item[data-priority="medium"]::before {
+  background: var(--priority-medium);
+}
+
+.finished-item[data-priority="low"]::before {
+  background: var(--priority-low);
+}
 
 .finished-item-main {
   display: flex;
@@ -898,10 +923,29 @@
   border-radius: 50%;
 }
 
-.status-high .status-dot { background: var(--priority-high); box-shadow: 0 0 6px var(--priority-high); }
-.status-medium .status-dot { background: var(--priority-medium); box-shadow: 0 0 6px var(--priority-medium); }
-.status-low .status-dot { background: var(--priority-low); box-shadow: 0 0 6px var(--priority-low); }
+.status-high .status-dot {
+  background: var(--priority-high);
+  box-shadow: 0 0 6px var(--priority-high);
+}
 
-.status-high { color: var(--priority-high); }
-.status-medium { color: var(--priority-medium); }
-.status-low { color: var(--priority-low); }
+.status-medium .status-dot {
+  background: var(--priority-medium);
+  box-shadow: 0 0 6px var(--priority-medium);
+}
+
+.status-low .status-dot {
+  background: var(--priority-low);
+  box-shadow: 0 0 6px var(--priority-low);
+}
+
+.status-high {
+  color: var(--priority-high);
+}
+
+.status-medium {
+  color: var(--priority-medium);
+}
+
+.status-low {
+  color: var(--priority-low);
+}

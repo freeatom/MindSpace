@@ -425,7 +425,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Spotlight (receive from main → save)
-  onSpotlightThought: (callback) => ipcRenderer.on('spotlight-create-thought', (e, data) => callback(data)),
+  onSpotlightThought: (callback) => ipcRenderer.on('spotlight-create-thought', async (e, data) => {
+    try {
+      const res = await callback(data);
+      // If a reply channel is set (agent's createThought flow), echo the result back
+      if (data && data._replyChannel) {
+        ipcRenderer.send(data._replyChannel, res);
+      }
+    } catch (err) {
+      if (data && data._replyChannel) {
+        ipcRenderer.send(data._replyChannel, { error: err.message });
+      }
+    }
+  }),
   onSpotlightArchive: (callback) => ipcRenderer.on('spotlight-create-archive', (e, data) => callback(data)),
   onSpotlightWorkflow: (callback) => ipcRenderer.on('spotlight-execute-workflow', (e, name) => callback(name)),
 
@@ -613,6 +625,24 @@ ipcRenderer.on('spotlight-ai-delete-thought', async (e, { id, replyChannel }) =>
   } catch (err) {
     console.error('AI Delete Thought Error:', err);
     ipcRenderer.send(replyChannel, { success: false, error: err.message });
+  }
+});
+
+// Agent verifier: get a single thought by id (with decrypted content)
+ipcRenderer.on('spotlight-ai-get-thought', async (e, { id, replyChannel }) => {
+  if (!dbReady || !thoughts) {
+    ipcRenderer.send(replyChannel, null);
+    return;
+  }
+  try {
+    const doc = await thoughts.findOne({ _id: id });
+    if (doc && doc.iv && sessionKey) {
+      doc.content = decryptText(doc.content, doc.iv, doc.tag, sessionKey);
+    }
+    ipcRenderer.send(replyChannel, doc);
+  } catch (err) {
+    console.error('AI Get Thought Error:', err);
+    ipcRenderer.send(replyChannel, null);
   }
 });
 
